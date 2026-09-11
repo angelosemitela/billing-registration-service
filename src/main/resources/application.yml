@@ -1,0 +1,57 @@
+# =============================================================================
+# Configuração principal da aplicação.
+#
+# Valores sensíveis (usuário/senha de banco) NÃO ficam hard-coded aqui: usamos
+# variáveis de ambiente com um valor padrão de desenvolvimento local
+# (sintaxe ${VARIAVEL:valor_padrao}). Em um ambiente real (homologação/produção)
+# você sobrescreve essas variáveis de ambiente ou usa um application-prod.yml.
+# =============================================================================
+
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: billing-registration-service
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/billing_db?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC}
+    username: ${DB_USERNAME:billing_app}
+    password: ${DB_PASSWORD:billing_app}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    # "validate": o Hibernate confere se as entidades Java batem com o schema
+    # do banco, mas NUNCA cria/altera tabelas sozinho. Quem manda no schema é
+    # o Flyway (scripts versionados em db/migration) - essa separação de
+    # responsabilidades é a boa prática recomendada para bancos relacionais.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false # evita manter a sessão do Hibernate aberta durante a renderização da view (boas práticas para APIs REST)
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: ${SHOW_SQL:false}
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+# Configuração do endpoint de health check do Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# Parâmetros de negócio (evita "números mágicos" espalhados pelo código -
+# ver com.aalvarenga.billing.config.BillingProperties)
+billing:
+  # Tamanho máximo (em caracteres) das colunas INPUT/OUTPUT da tabela T_LOG.
+  # Deve ficar sincronizado com a definição das colunas no script de schema
+  # (V1__create_schema.sql). Se o JSON de entrada/saída ultrapassar esse
+  # tamanho, ele é truncado ("cut") antes de ser gravado, conforme pedido no
+  # enunciado do projeto.
+  log:
+    max-payload-length: 16000

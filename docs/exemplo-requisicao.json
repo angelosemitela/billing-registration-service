@@ -1,0 +1,122 @@
+{
+  "channel": "WEB",
+  "transactionDate": "1789047480000",
+  "protocol": "WEB-EXAMPLE-0001",
+  "account": [
+    {
+      "id": null,
+      "name": "Angelo Alvarenga",
+      "externalId": "XXXX1234",
+      "document": [
+        {
+          "type": "CPF",
+          "description": null,
+          "value": "22222222222",
+          "country": "BR"
+        }
+      ],
+      "address": [
+        {
+          "type": "RESIDENCIAL",
+          "description": "CASA",
+          "addressName": "Rua Uno",
+          "number": "112",
+          "complement": null,
+          "zipCode": "22555666",
+          "country": "BR"
+        }
+      ],
+      "phone": [
+        { "number": "5521999999999" }
+      ]
+    }
+  ],
+  "product": [
+    {
+      "codeId": "1",
+      "name": "Test Streaming 1",
+      "type": "RECURRENCE",
+      "isExpiriationService": true,
+      "recurrenceFrequency": "MONTH",
+      "productValue": 10,
+      "discountValue": 0,
+      "discountCycles": 0,
+      "currency": "BRL",
+      "isTrial": false,
+      "trialDays": null
+    },
+    {
+      "codeId": "2",
+      "name": "Test Streaming 2",
+      "type": "ONESHOT",
+      "isExpiriationService": true,
+      "recurrenceFrequency": "MONTH",
+      "productValue": 20,
+      "discountValue": 5.5,
+      "discountCycles": 1,
+      "currency": "BRL",
+      "isTrial": false,
+      "trialDays": null
+    }
+  ],
+  "payment": [
+    {
+      "method": "CREDIT",
+      "issuer": "Santander",
+      "cardNumber": "1111***********11",
+      "expiration": "03/31",
+      "isMultiple": true,
+      "isDefault": true,
+      "installments": 1,
+      "token": [
+        { "name": "ACCESS_TOKEN", "id": "XZA1BVERYJ-EXAMPLE", "gateway": "INTERNAL", "expirationDate": null }
+      ]
+    },
+    {
+      "method": "PIX",
+      "issuer": "Itau",
+      "cardNumber": null,
+      "expiration": null,
+      "isMultiple": null,
+      "isDefault": false,
+      "installments": 1,
+      "token": [
+        { "name": "ACCESS_TOKEN", "id": "XZA1BVERYA-EXAMPLE", "gateway": "INTERNAL", "expirationDate": null }
+      ]
+    }
+  ],
+  "billing": [
+    {
+      "codeId": "1",
+      "productValue": 10,
+      "discountValue": 0,
+      "taxValue": 2,
+      "chargedValue": 12,
+      "currency": "BRL",
+      "transactionId": "CIELO12345-EXAMPLE",
+      "installments": 1,
+      "provider": "CIELO",
+      "paymentMethod": "CREDIT",
+      "tax": [
+        { "name": "CBS", "value": 0.5 },
+        { "name": "IBS", "value": 1.5 }
+      ]
+    },
+    {
+      "codeId": "2",
+      "productValue": 20,
+      "discountValue": 5.5,
+      "taxValue": 3.35,
+      "chargedValue": 17.85,
+      "currency": "BRL",
+      "transactionId": "E233345566777-EXAMPLE",
+      "installments": 1,
+      "provider": "BRADESCO",
+      "paymentMethod": "PIX",
+      "tax": [
+        { "name": "CBS", "value": 1.35 },
+        { "name": "IBS", "value": 2 }
+      ]
+    }
+  ]
+}

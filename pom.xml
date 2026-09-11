@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    POM (Project Object Model) do Maven.
+
+    Este arquivo descreve COMO o projeto é construído (build) e QUAIS bibliotecas
+    (dependências) ele usa. É o equivalente ao "package.json" do mundo Node.js
+    ou ao "requirements.txt" do Python, só que mais robusto: além de listar
+    dependências, também define plugins de build, versão de Java, etc.
+
+    Usamos o "spring-boot-starter-parent" como parent POM: ele já define versões
+    compatíveis entre si para dezenas de bibliotecas (Jackson, Hibernate, Tomcat...),
+    então não precisamos ficar escolhendo versão de cada dependência manualmente
+    (isso evita o clássico problema de "dependency hell").
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <!-- Linha estável mais recente do Spring Boot no momento da criação deste
+             projeto (setembro/2026), com suporte oficial a Java 17-26. -->
+        <version>4.1.1</version>
+        <relativePath/> <!-- busca o parent no repositório Maven, não localmente -->
+    </parent>
+
+    <groupId>com.aalvarenga</groupId>
+    <artifactId>billing-registration-service</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>billing-registration-service</name>
+    <description>
+        Serviço de registro de compras e faturamento (portfólio de estudos).
+        Recebe requisições de venda via REST, valida regras de negócio e
+        persiste contas, produtos, pagamentos e faturas em um banco MySQL.
+    </description>
+
+    <properties>
+        <!-- Java 25: versão solicitada para o projeto. O Spring Boot 4.1 suporta
+             oficialmente até Java 26, então não há incompatibilidade. -->
+        <java.version>25</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- ================= WEB ================= -->
+        <!-- Traz o Spring MVC + Tomcat embutido para expormos endpoints REST -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- ================= VALIDAÇÃO ================= -->
+        <!-- Bean Validation (Jakarta Validation) para anotações como @NotNull,
+             @NotBlank, @Positive etc. diretamente nos DTOs de entrada -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- ================= PERSISTÊNCIA ================= -->
+        <!-- Spring Data JPA (usa Hibernate por baixo dos panos) para mapear
+             classes Java para tabelas do banco relacional -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Driver JDBC do MySQL -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Flyway: ferramenta de versionamento/migração de banco de dados.
+             Os scripts SQL ficam em src/main/resources/db/migration e são
+             aplicados automaticamente na inicialização da aplicação, na ordem
+             correta (V1, V2, V3...). É a forma "boa prática" de entregar os
+             scripts de criação de banco pedidos no escopo do projeto: eles
+             ficam versionados, documentados e são aplicados de forma
+             repetível (o mesmo script nunca roda duas vezes no mesmo banco). -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
+        <!-- ================= PRODUTIVIDADE ================= -->
+        <!-- Lombok: gera em tempo de compilação métodos repetitivos (getters,
+             setters, construtores, builders...) a partir de anotações,
+             reduzindo código "boilerplate" nas entidades e DTOs. -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ================= OBSERVABILIDADE ================= -->
+        <!-- Actuator expõe endpoints de saúde/monitoramento (ex: /actuator/health),
+             úteis inclusive para verificar rapidamente se a app subiu com sucesso -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- ================= TESTES ================= -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <!--
+        Nota de evolução: os testes deste projeto são testes de unidade "puros"
+        (services com dependências mockadas via Mockito, sem subir contexto
+        Spring nem banco). Não incluímos H2 porque as triggers de auditoria
+        (T_*_AU) são escritas em SQL nativo do MySQL e não rodam em H2 - para
+        testes de integração reais no futuro, o caminho recomendado é usar
+        Testcontainers com uma imagem oficial do MySQL (ver README, seção
+        "Próximos passos / outros frameworks").
+    -->
+
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <!-- Lombok só atua em tempo de compilação; não precisa
+                             ir parar dentro do JAR final da aplicação -->
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
