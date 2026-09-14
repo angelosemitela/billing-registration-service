@@ -31,8 +31,13 @@ CREATE TABLE T_LOG_AU
     RESULT              VARCHAR(20) NOT NULL,
     CODE                VARCHAR(10) NOT NULL,
     REASON              VARCHAR(500) NOT NULL,
-    INPUT               VARCHAR(16000) NOT NULL,
-    OUTPUT              VARCHAR(16000) NOT NULL
+    -- Mesmo motivo da tabela original T_LOG (ver comentário em
+    -- V2__create_application_schema.sql): VARCHAR(16000) em utf8mb4 estoura
+    -- o limite de 65.535 bytes por linha do MySQL/InnoDB (erro 1118 "Row
+    -- size too large"). TEXT resolve pelo mesmo motivo: fica armazenado
+    -- fora da página principal da linha e não conta para esse limite.
+    INPUT               TEXT NOT NULL,
+    OUTPUT              TEXT NOT NULL
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
@@ -228,7 +233,7 @@ CREATE TABLE T_PRODUCT_AU
     NAME                VARCHAR(200) NOT NULL,
     TYPE                VARCHAR(20) NOT NULL,
     EXP_SERV_B          CHAR(1) NOT NULL,
-    RECURRENCE_FREQUENCYVARCHAR(20),
+    RECURRENCE_FREQUENCY VARCHAR(20),
     VALUE               DECIMAL(14,2) NOT NULL,
     CURRENCY            CHAR(3) NOT NULL,
     TRIAL_B             CHAR(1) NOT NULL,

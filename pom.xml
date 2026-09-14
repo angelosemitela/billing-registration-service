@@ -88,11 +88,25 @@
              correta (V1, V2, V3...). É a forma "boa prática" de entregar os
              scripts de criação de banco pedidos no escopo do projeto: eles
              ficam versionados, documentados e são aplicados de forma
-             repetível (o mesmo script nunca roda duas vezes no mesmo banco). -->
+             repetível (o mesmo script nunca roda duas vezes no mesmo banco).
+
+             IMPORTANTE (Spring Boot 4): até o Boot 3, bastava colocar
+             "flyway-core" no classpath que o Spring Boot auto-configurava
+             tudo sozinho. A partir do Boot 4, a auto-configuração de cada
+             integração (Flyway, Liquibase, Hibernate/JPA, etc.) foi separada
+             em módulos próprios - e sem o STARTER específico, a
+             auto-configuração correspondente simplesmente NÃO ativa, sem
+             erro nenhum no log (foi exatamente isso que aconteceu aqui: a
+             aplicação subia normalmente, conectava no MySQL, mas o Flyway
+             nunca rodava as migrations, e só descobrimos porque o Hibernate
+             reclamou de tabela ausente). Por isso usamos o starter abaixo em
+             vez do "flyway-core" isolado. -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
+        <!-- Módulo específico de suporte ao MySQL (o "flyway-core"/starter
+             sozinho não sabe dialeto nenhum de banco específico). -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-mysql</artifactId>

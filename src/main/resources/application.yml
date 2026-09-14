@@ -27,6 +27,23 @@ spring:
     # responsabilidades é a boa prática recomendada para bancos relacionais.
     hibernate:
       ddl-auto: validate
+      naming:
+        # Por padrão, o Spring Boot usa o "SpringPhysicalNamingStrategy", que
+        # converte TODO nome de tabela/coluna para snake_case minúsculo -
+        # inclusive quando já informamos um nome explícito em @Table/@Column,
+        # como fazemos aqui (@Table(name = "T_ACCOUNT")). Resultado: o
+        # Hibernate ficava procurando a tabela "t_account" (minúscula) para
+        # validar o schema, enquanto o Flyway criou "T_ACCOUNT" (maiúscula,
+        # exatamente como o script SQL manda) - e no Linux/MySQL (usado pela
+        # imagem Docker), nomes de tabela são case-SENSITIVE, então "t_account"
+        # e "T_ACCOUNT" são considerados nomes DIFERENTES. Erro resultante:
+        # "Schema validation: missing table [t_account]", mesmo com a tabela
+        # certinha lá no banco. A "PhysicalNamingStrategyStandardImpl" é a
+        # estratégia padrão do Hibernate "puro" (sem as conversões do Spring
+        # Boot): ela usa o nome exatamente como está na anotação, sem alterar
+        # capitalização - a escolha certa sempre que o projeto define nomes de
+        # tabela/coluna explicitamente (nosso caso, em 100% das entidades).
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     open-in-view: false # evita manter a sessão do Hibernate aberta durante a renderização da view (boas práticas para APIs REST)
     properties:
       hibernate:

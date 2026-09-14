@@ -35,8 +35,18 @@ design tomadas e as inconsistências encontradas na especificação original.
 docker run --name billing-mysql -e MYSQL_ROOT_PASSWORD=root \
   -e MYSQL_DATABASE=billing_db \
   -e MYSQL_USER=billing_app -e MYSQL_PASSWORD=billing_app \
-  -p 3306:3306 -d mysql:8.4
+  -p 3306:3306 -d mysql:8.4 \
+  --log-bin-trust-function-creators=1
 ```
+
+> A flag `--log-bin-trust-function-creators=1` é necessária porque a
+> migration `V3__create_audit_infrastructure.sql` cria **triggers** de
+> auditoria (`TRG_*_AU_UPD`/`TRG_*_AU_DEL`) - ver a seção
+> ["Nota de operação: criação de triggers com binary log habilitado"](#nota-de-operação-criação-de-triggers-com-binary-log-habilitado)
+> logo abaixo para o motivo completo. Se você já subiu o container SEM essa
+> flag, não precisa recriá-lo: basta rodar
+> `docker exec -it billing-mysql mysql -u root -proot -e "SET GLOBAL log_bin_trust_function_creators = 1;"`
+> uma vez (efeito equivalente, só que não sobrevive a um `docker restart`).
 
 ### Rodando a aplicação
 
@@ -59,6 +69,50 @@ Health check: `GET http://localhost:8080/actuator/health`
 | `DB_URL`      | `jdbc:mysql://localhost:3306/billing_db?...`          |
 | `DB_USERNAME` | `billing_app`                                         |
 | `DB_PASSWORD` | `billing_app`                                         |
+
+### Nota de operação: criação de triggers com binary log habilitado
+
+Na primeira execução com um MySQL 8.4 "do zero" (imagem oficial do Docker),
+a migration `V3__create_audit_infrastructure.sql` pode falhar com:
+
+```
+Error Code: 1419
+Message: You do not have the SUPER privilege and binary logging is
+enabled (you *might* want to use the less safe
+log_bin_trust_function_creators variable)
+```
+
+**Causa raiz**: essa migration cria 22 *triggers* (`BEFORE UPDATE`/`BEFORE
+DELETE`, uma dupla para cada tabela auditável) que gravam uma "fotografia"
+do registro antes de ele ser alterado/excluído. O MySQL 8.4 já vem com
+*binary logging* habilitado por padrão (usado para replicação e
+recuperação point-in-time) - e, quando o binary log está ativo, criar
+rotinas armazenadas (funções e, em algumas configurações/versões,
+triggers) exige o privilégio `SUPER` **ou** a variável de sistema
+`log_bin_trust_function_creators = 1`. O motivo é a segurança da
+replicação: uma trigger "mal comportada" poderia gravar dados diferentes
+em cada réplica se o log fosse baseado em instruções (`STATEMENT`) em vez
+de linhas alteradas. O usuário da aplicação (`billing_app`) não tem (e não
+deveria ter, por princípio de menor privilégio) o privilégio `SUPER` -
+então o próprio Flyway, rodando com esse usuário, esbarra na restrição.
+
+**Correção**: habilitamos `log_bin_trust_function_creators` no próprio
+container MySQL - via flag `--log-bin-trust-function-creators=1` no
+`docker run` (fica persistido enquanto o container existir) ou, para um
+container já em execução, com
+`SET GLOBAL log_bin_trust_function_creators = 1;` (efeito imediato, mas
+some se o processo do MySQL for reiniciado). Isso não é uma mudança de
+código do projeto - é puramente configuração do ambiente de banco local.
+
+**Alternativas para estudo futuro** (mais robustas para um cenário real
+com replicação, onde "confiar" na criação de rotinas é mais delicado):
+usar `SQL SECURITY INVOKER` nas triggers (não resolve sozinho esse erro
+específico, mas reduz o escopo de permissões com que a trigger roda);
+desabilitar o binary log inteiramente para um ambiente 100% local sem
+replicação (`--skip-log-bin`, mais simples ainda para este projeto, já que
+não há réplicas); ou, em um MySQL gerenciado na nuvem (RDS, Cloud SQL
+etc.), conceder ao usuário de deploy uma role equivalente a `SUPER`
+apenas durante a execução das migrations (nunca em produção contínua).
 
 ## Arquitetura
 
@@ -321,6 +375,182 @@ mudar). `@SuperBuilder` encadeia os builders de toda a hierarquia, mas por
 isso precisa estar presente em TODAS as classes da cadeia (nunca misturado
 com `@Builder` simples numa mesma hierarquia) - ver comentário completo em
 `BaseAuditableEntity.java`.
+
+### Nota de compatibilidade: auto-configuração modular no Spring Boot 4 (Flyway)
+
+No primeiro teste real do serviço (com MySQL de verdade rodando via Docker),
+a aplicação subia, conectava no banco normalmente (log do HikariCP OK), mas
+o Hibernate falhava logo em seguida com `Schema validation: missing table
+[t_account]` - como se as tabelas do Flyway nunca tivessem sido criadas.
+Confirmamos direto no MySQL (`SHOW TABLES;` retornando vazio) que era
+exatamente isso: **o Flyway nunca chegou a rodar**, e o mais intrigante é
+que não aparecia NENHUMA linha de log do Flyway no console - nem sucesso,
+nem erro. Silêncio total.
+
+**Causa raiz**: até o Spring Boot 3, bastava colocar `flyway-core` no
+classpath que a auto-configuração do Flyway era ativada automaticamente. A
+partir do **Spring Boot 4**, o framework passou a ser distribuído em módulos
+menores e mais especializados - a auto-configuração de cada integração
+(Flyway, Liquibase, e como já vimos antes, o próprio Hibernate/JPA -
+repare no pacote `org.springframework.boot.hibernate.autoconfigure` nos
+stack traces) foi separada em artefatos próprios. Sem o *starter* correto,
+a auto-configuração correspondente simplesmente **não ativa - sem erro, sem
+aviso, sem log nenhum**. É um comportamento silencioso por design (não é um
+bug), mas pega muita gente desprevenida numa migração.
+
+**Correção**: trocamos a dependência solta `org.flywaydb:flyway-core` por
+`org.springframework.boot:spring-boot-starter-flyway` no `pom.xml` (mantendo
+o `flyway-mysql`, que continua sendo o módulo específico de suporte ao
+dialeto MySQL). Nenhuma mudança de código ou de configuração (`application.yml`)
+foi necessária - só a troca da dependência.
+
+**Lição para o estudo**: sempre que uma integração do Spring Boot "some" sem
+motivo aparente após atualizar para uma major version, vale checar a lista
+oficial de *starters* modulares do Boot 4
+(https://docs.spring.io/spring-boot/appendix/auto-configuration-classes/index.html)
+antes de assumir que é um bug de configuração no seu próprio projeto.
+
+### Nota de compatibilidade: nomes de tabela em maiúsculas x `SpringPhysicalNamingStrategy`
+
+Depois de corrigir o problema acima (Flyway passou a criar as tabelas
+normalmente), a aplicação voltou a falhar com `Schema validation: missing
+table [t_account]` - só que agora a tabela existia de verdade no banco
+(`SHOW TABLES;` mostrava `T_ACCOUNT`). O detalhe é a **caixa** do nome: o
+Hibernate procurava `t_account` (minúsculo).
+
+**Causa raiz**: por padrão, o Spring Boot troca a estratégia "pura" do
+Hibernate pela sua própria (`SpringPhysicalNamingStrategy`), que converte
+todo nome de tabela/coluna para snake_case minúsculo - **mesmo** quando já
+existe um nome explícito em `@Table(name = "T_ACCOUNT")`. Isso nunca deu
+problema em bancos case-*insensitive* (Windows, ou MySQL configurado com
+`lower_case_table_names=1`), mas a imagem oficial `mysql:8.4` roda em Linux,
+onde nomes de tabela são case-*sensitive* por padrão - então `t_account` e
+`T_ACCOUNT` passam a ser considerados nomes diferentes.
+
+**Correção**: em `application.yml`, trocamos a estratégia de nomenclatura
+física para a padrão do Hibernate "puro":
+
+```yaml
+spring:
+  jpa:
+    hibernate:
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+```
+
+Essa estratégia respeita exatamente o nome informado na anotação, sem
+reformatar capitalização - a escolha certa sempre que o projeto já define
+nomes de tabela/coluna explicitamente em maiúsculas, como fizemos em 100%
+das entidades deste projeto.
+
+**Lição para o estudo**: `@Table(name = "...")` e `@Column(name = "...")`
+não são a "palavra final" sobre o nome físico no Hibernate - por padrão,
+ainda passam por uma estratégia de nomenclatura que pode reescrevê-los. Vale
+sempre conferir qual `PhysicalNamingStrategy` está ativa quando o nome
+esperado não bate com o nome real da tabela/coluna no banco.
+
+### Nota de compatibilidade: limite de tamanho de linha do MySQL (`T_LOG` e `T_LOG_AU`)
+
+Com o Flyway já criando as tabelas corretamente, a migration
+`V2__create_application_schema.sql` passou a falhar logo na primeira
+tabela (`T_LOG`) com o erro do MySQL:
+
+```
+Error Code: 1118. Row size too large. The maximum row size for the used
+table type, not counting BLOBs, is 65535. This includes storage overhead,
+check the manual. You have to change some columns to TEXT or BLOBs.
+```
+
+**Causa raiz**: as colunas `INPUT` e `OUTPUT` guardam o JSON de
+entrada/saída da requisição e foram originalmente declaradas como
+`VARCHAR(16000)` (o limite de 16000 caracteres vem da regra de negócio de
+truncamento do enunciado - ver `billing.log.max-payload-length`). O
+problema é que o MySQL/InnoDB limita o tamanho **total** de uma linha,
+somando todas as colunas "de tamanho fixo na página" (tudo exceto
+`TEXT`/`BLOB`), a **65.535 bytes** - e, como a tabela usa `utf8mb4` (até 4
+bytes por caractere, para suportar acentuação e emojis), só a coluna
+`INPUT` já reservava até `16000 × 4 = 64.000` bytes; somando `OUTPUT` (mais
+64.000 bytes) e as demais colunas, a linha estourava o limite com folga.
+
+**Correção**: seguimos a própria recomendação da mensagem de erro do
+MySQL e trocamos `INPUT`/`OUTPUT` de `VARCHAR(16000)` para `TEXT` na
+migration. Colunas `TEXT` são armazenadas fora da página principal da
+linha (só um ponteiro fica "na linha"), então não contam para o limite de
+65.535 bytes - e o tipo `TEXT` comporta até 65.535 *bytes*, o que cobre
+com folga os 16000 *caracteres* (até 64.000 bytes em `utf8mb4`) que a
+aplicação efetivamente grava. No lado Java (`LogEntity`), acrescentamos
+`@Lob` nessas duas colunas, mantendo `length = 16000` (ver "pegadinha
+extra" logo abaixo - por que o `length` continuou necessário mesmo com
+`@Lob`). O truncamento em si continua 100% no código Java
+(`RequestLogService.truncate`), sem nenhuma relação com o tipo da coluna -
+o banco só precisa ser capaz de *armazenar* até 16000 caracteres, e quem
+decide truncar antes disso é regra de negócio, não limitação de schema.
+
+**Lição para o estudo**: em bancos relacionais tradicionais, colunas de
+texto "grandes" (JSON, descrições longas, corpos de mensagem) quase sempre
+devem ser `TEXT`/`CLOB` em vez de `VARCHAR` com um número grande - além do
+limite de linha do MySQL/InnoDB, `VARCHAR` grande também desperdiça espaço
+fixo na página mesmo quando o conteúdo real é pequeno. Em bancos como o
+PostgreSQL, essa distinção importa menos (o `TOAST` do Postgres já lida
+com valores grandes automaticamente, então `VARCHAR` sem limite e `TEXT`
+são praticamente equivalentes) - mais um motivo, entre vários já citados
+neste README, para nunca supor que um comportamento é idêntico entre
+bancos diferentes.
+
+**Pegadinha extra**: a tabela de auditoria `T_LOG_AU` (criada em
+`V3__create_audit_infrastructure.sql`, ver seção
+["Auditoria de tabelas"](#auditoria-de-tabelas) mais abaixo) replica a
+estrutura de `T_LOG` **inteira**, `INPUT`/`OUTPUT` incluídos - ou seja, tem
+exatamente o mesmo problema, só que descoberto uma migration depois (V2
+passou a rodar certinho; foi a V3 que voltou a estourar o limite de linha,
+agora em `T_LOG_AU`). A correção foi idêntica: `VARCHAR(16000)` → `TEXT`.
+Vale como lembrete de que, ao duplicar a estrutura de uma tabela para fins
+de auditoria/histórico, qualquer ajuste de tipo feito na tabela original
+precisa ser replicado manualmente na tabela `_AU` - não há nenhum mecanismo
+automático de sincronização entre as duas neste projeto.
+
+### Nota de compatibilidade: `@Lob` sozinho não é suficiente - o `length` decide TINYTEXT x TEXT x MEDIUMTEXT x LONGTEXT
+
+Depois que a migration passou a criar `T_LOG.INPUT`/`OUTPUT` como `TEXT`
+(nota acima), a aplicação subiu até a validação de schema do Hibernate e
+falhou com:
+
+```
+Schema validation: wrong column type encountered in column [INPUT] in
+table [T_LOG]; found [text (Types#LONGVARCHAR)], but expecting [tinytext
+(Types#CLOB)]
+```
+
+**Causa raiz**: na primeira tentativa de corrigir a entidade, trocamos
+`@Column(length = 16000)` por `@Lob` **sem** manter o `length` - o
+raciocínio (errado) era que `length` só fazia sentido para `VARCHAR`. Só
+que o MySQL não tem um único tipo "CLOB": tem quatro variantes de texto
+(`TINYTEXT` até 255 bytes, `TEXT` até 65.535, `MEDIUMTEXT` até 16.777.215,
+`LONGTEXT` acima disso), e é o `length` declarado no `@Column` que diz ao
+Hibernate/dialeto MySQL **qual delas** validar - não mais "VARCHAR ou
+TEXT" (isso quem decide é o `@Lob`), e sim "qual tamanho de TEXT". Sem
+`length` explícito, vale o padrão do JPA (`length = 255`), que cai
+exatamente na faixa do `TINYTEXT` - daí o Hibernate esperar `tinytext` e
+encontrar `text` (criado pela migration) no banco real.
+
+**Correção**: mantivemos `@Lob` (necessário para o tipo virar `TEXT`/CLOB
+em vez de `VARCHAR`) **e** `length = 16000` (necessário para cair na faixa
+do `TEXT`, e não do `TINYTEXT`) juntos em `INPUT`/`OUTPUT`:
+
+```java
+@Lob
+@Column(name = "INPUT", nullable = false, length = 16000)
+private String input;
+```
+
+**Lição para o estudo**: `@Lob` e `length` no JPA/Hibernate resolvem
+problemas DIFERENTES e às vezes precisam ser usados **juntos**: `@Lob`
+decide a família de tipo (texto grande vs. `VARCHAR` comum); `length`
+decide o tamanho dentro dessa família (relevante em bancos, como o MySQL,
+que têm múltiplas variantes de tipo texto grande com limites diferentes).
+Remover `length` ao adicionar `@Lob` é um erro comum e intuitivo (parece
+"redundante"), mas no MySQL faz o Hibernate assumir o menor tipo possível
+(`TINYTEXT`, 255 bytes) por padrão.
 
 ## Limitações conhecidas
 

@@ -34,13 +34,27 @@ CREATE TABLE T_LOG
     RESULT      VARCHAR(20)  NOT NULL,
     CODE        VARCHAR(10)  NOT NULL,
     REASON      VARCHAR(500) NOT NULL,
-    -- INPUT/OUTPUT guardam o JSON textual de entrada/saída. VARCHAR (e não
-    -- TEXT/LONGTEXT) foi usado deliberadamente, pois o enunciado pede para
-    -- truncar ("cut") o conteúdo quando ultrapassar o tamanho da coluna -
-    -- esse limite (16000) precisa ficar sincronizado com
-    -- billing.log.max-payload-length em application.yml.
-    INPUT       VARCHAR(16000) NOT NULL,
-    OUTPUT      VARCHAR(16000) NOT NULL,
+    -- INPUT/OUTPUT guardam o JSON textual de entrada/saída, truncado em até
+    -- 16000 caracteres pela aplicação (ver
+    -- com.aalvarenga.billing.service.RequestLogService e a propriedade
+    -- billing.log.max-payload-length em application.yml) ANTES de chegar
+    -- aqui - o truncamento é responsabilidade da camada Java, não do banco.
+    --
+    -- Por que TEXT e não VARCHAR(16000):
+    -- o MySQL InnoDB limita o tamanho TOTAL de uma linha (somando todas as
+    -- colunas "fixas na página", sem contar BLOB/TEXT) a 65.535 bytes. Em
+    -- utf8mb4 cada caractere pode ocupar até 4 bytes, então só a coluna
+    -- INPUT já reservaria até 16000 x 4 = 64.000 bytes - somada a OUTPUT
+    -- (mais 64.000) e as demais colunas da tabela, a linha estourava
+    -- facilmente o limite (erro 1118 "Row size too large"). Colunas TEXT
+    -- são armazenadas separadamente da linha principal (só um ponteiro fica
+    -- "na página"), então não contam para esse limite de 65.535 bytes -
+    -- daí a recomendação do próprio MySQL na mensagem de erro: "change some
+    -- columns to TEXT or BLOBs". O tipo TEXT comporta até 65.535 BYTES, o
+    -- que cobre com folga os 16000 CARACTERES (até 64.000 bytes em
+    -- utf8mb4) que a aplicação efetivamente grava aqui.
+    INPUT       TEXT NOT NULL,
+    OUTPUT      TEXT NOT NULL,
     INDEX IDX_LOG_PROTOCOL (PROTOCOL)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
