@@ -224,6 +224,104 @@ práticas" e a intenção mais provável do texto original).
   houver correspondência), por ser uma checagem de integridade mínima
   razoável.
 
+### Nota de compatibilidade: Jackson 3 no Spring Boot 4.1
+
+O Spring Boot 4.1 (Spring Framework 7) passou a usar o **Jackson 3** como
+biblioteca JSON padrão em vez do Jackson 2 (pacotes `com.fasterxml.jackson.*`
+viraram `tools.jackson.*`, e `ObjectMapper` foi substituído, na prática, por
+`JsonMapper`, sua subclasse imutável e "pronta para JSON"). Isso quebra
+qualquer código que ainda importe as classes antigas do Jackson 2
+(`com.fasterxml.jackson.databind.ObjectMapper`,
+`com.fasterxml.jackson.core.JsonProcessingException`) - foi exatamente o que
+aconteceu neste projeto em `PurchaseService` e `GlobalExceptionHandler`, que
+falhavam ao compilar com `package com.fasterxml.jackson.core does not exist`.
+
+**Decisão tomada**: migrar os dois pontos de uso para a API nativa do
+Jackson 3 (`tools.jackson.databind.json.JsonMapper` +
+`tools.jackson.core.JacksonException`, esta última agora *unchecked*), em vez
+de reativar o Jackson 2 via o módulo de compatibilidade
+`spring-boot-jackson2`. Optamos pela migração porque:
+1. O próprio módulo de compatibilidade é documentado pelo Spring como
+   **depreciado** ("should not be relied upon in the longer term");
+2. O uso de Jackson neste projeto é mínimo (só serialização de logs em
+   `toJsonSafely`), então o custo da migração é baixíssimo;
+3. Para um projeto de estudo, faz mais sentido aprender a API atual do que
+   já nascer "usando algo deprecado por compatibilidade".
+
+**Para quem quiser estudar o caminho alternativo** (útil em projetos legados
+maiores, onde reescrever todo uso de Jackson de uma vez não é viável): basta
+adicionar a dependência `org.springframework.boot:spring-boot-jackson2` ao
+`pom.xml` (sem precisar declarar versão - gerenciada pelo BOM do Spring
+Boot) e configurar `spring.http.converters.preferred-json-mapper=jackson2`
+no `application.yml`, mantendo o código Java inalterado.
+
+### Nota de compatibilidade: Lombok exige configuração explícita a partir do JDK 23
+
+Ao corrigir o problema do Jackson acima, o Lombok (`@Builder`, `@Getter`/
+`@Setter`, `@Slf4j`, `@RequiredArgsConstructor`) continuou **completamente
+inoperante** em todo o projeto - toda chamada a `.builder()`, todo getter/
+setter gerado e até o campo `log` do `@Slf4j` davam `cannot find symbol`, e
+o Spring nem conseguia instanciar os `@Service`/`@RestController` porque o
+construtor gerado por `@RequiredArgsConstructor` simplesmente não existia
+("variable X not initialized in the default constructor").
+
+**Causa raiz**: a partir do **JDK 23**, o `javac` deixou de escanear
+automaticamente o classpath de compilação em busca de annotation
+processors (medida de segurança contra jars maliciosos disfarçados de
+processor - um processor mal-intencionado roda código arbitrário durante a
+compilação). Isso quebra silenciosamente qualquer projeto Maven que
+dependa da descoberta automática do Lombok, como este (JDK 25). Não é um
+erro de configuração deste projeto especificamente - é uma mudança de
+comportamento do próprio `javac`/Maven que afeta qualquer projeto Lombok +
+JDK 23+ sem esse ajuste, e por isso vale sempre conferir a documentação
+oficial (https://projectlombok.org/setup/maven) ao subir a versão do JDK.
+
+**Correção aplicada**: registrar o Lombok explicitamente como annotation
+processor no `maven-compiler-plugin`, em vez de depender da descoberta
+automática:
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-compiler-plugin</artifactId>
+    <configuration>
+        <annotationProcessorPaths>
+            <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </path>
+        </annotationProcessorPaths>
+    </configuration>
+</plugin>
+```
+Aproveitamos para também fixar `lombok.version=1.18.48` (mais recente que a
+gerenciada pelo BOM do Spring Boot 4.1.1, que é `1.18.46`), já que o Lombok
+teve diversos ajustes de compatibilidade com o JDK 25 ao longo de 2025/2026.
+
+### Nota de compatibilidade: `@Builder` não inclui campos herdados (→ `@SuperBuilder`)
+
+Ao rodar os testes (`mvn test`), surgiu mais um erro, desta vez sem relação
+com JDK/versão nenhuma - um limite conhecido do próprio Lombok: `cannot find
+symbol: method id(long) location: class AccountEntity.AccountEntityBuilder`.
+
+**Causa**: todas as entidades deste projeto (`AccountEntity`,
+`ProductEntity`, etc.) estendem `BaseAuditableEntity` (que centraliza os
+campos `id`/`createdDt`/`modifiedDt` - ver seção "Convenções de modelagem").
+O Lombok "comum" (`@Builder`) só inclui, no builder gerado, os campos
+declarados na PRÓPRIA classe anotada - campos herdados de uma superclasse
+ficam de fora do builder. Isso nunca deu erro na aplicação em si porque o
+código de produção nunca precisa definir o `id` manualmente (ele é sempre
+gerado pelo `AUTO_INCREMENT` do MySQL), mas um teste unitário que monta um
+`AccountEntity` "fake" (simulando um registro já existente) precisava disso.
+
+**Correção**: trocamos `@Builder` por **`@SuperBuilder`** em
+`BaseAuditableEntity` e em todas as 11 entidades que a estendem (mesmo nome
+de método gerado - `builder()` -, então nenhum código de produção precisou
+mudar). `@SuperBuilder` encadeia os builders de toda a hierarquia, mas por
+isso precisa estar presente em TODAS as classes da cadeia (nunca misturado
+com `@Builder` simples numa mesma hierarquia) - ver comentário completo em
+`BaseAuditableEntity.java`.
+
 ## Limitações conhecidas
 
 - **Log de erros de JSON malformado**: quando o corpo da requisição não é um

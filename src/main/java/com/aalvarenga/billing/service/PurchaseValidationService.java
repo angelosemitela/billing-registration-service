@@ -75,7 +75,7 @@ public class PurchaseValidationService {
         validateProtocol(request.protocol());
 
         if (request.account().size() != 1) {
-            // O enunciado modela "account" como lista, mas to.do o restante da regra de
+            // O enunciado modela "account" como lista, mas todo o restante da regra de
             // negócio (uma compra = um assinante) só faz sentido para exatamente 1 elemento.
             // Ver README/ANALISE.md, seção "Inconsistências".
             throw BusinessException.badRequest("Exactly one account must be informed");
@@ -390,7 +390,7 @@ public class PurchaseValidationService {
 
             BigDecimal taxSum = billing.tax() == null ? BigDecimal.ZERO
                     : billing.tax().stream().map(t -> t.value() == null ? BigDecimal.ZERO : t.value())
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (!MoneyUtil.equalsMoney(taxSum, billing.taxValue())) {
                 throw BusinessException.preconditionFailed("The sum of taxes does not match on product " + billing.codeId());
             }

@@ -9,7 +9,9 @@ import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Superclasse comum a TODAS as entidades "de aplicação" (não-domínio).
@@ -25,9 +27,25 @@ import lombok.Setter;
  * ciclo de vida do JPA: o Hibernate os invoca automaticamente um instante
  * antes de gerar o INSERT/UPDATE no banco, garantindo que NINGUÉM esqueça de
  * preencher as datas de auditoria manualmente.
+ *
+ * <p><b>{@code @SuperBuilder} em vez de {@code @Builder}</b>: o Lombok
+ * "comum" ({@code @Builder}) só inclui, no builder gerado, os campos
+ * declarados na PRÓPRIA classe anotada - campos herdados de uma superclasse
+ * (como {@code id}, {@code createdDt}, {@code modifiedDt} aqui) ficariam de
+ * fora do builder de {@code AccountEntity}, {@code ProductEntity} etc.
+ * {@code @SuperBuilder} resolve isso encadeando os builders de toda a
+ * hierarquia - só precisa estar presente em TODAS as classes da cadeia
+ * (esta base + cada subclasse), nunca misturado com {@code @Builder} simples.
+ * Mantemos {@code @NoArgsConstructor} explícito porque, ao adicionar
+ * {@code @SuperBuilder}, o Lombok passa a gerar um construtor próprio (que
+ * recebe o builder) - sem isso, o construtor padrão "sem argumentos" que o
+ * Java cria implicitamente deixaria de existir, e o JPA/Hibernate PRECISA de
+ * um construtor sem argumentos (protected/public) em toda entidade.
  */
 @Getter
 @Setter
+@SuperBuilder
+@NoArgsConstructor
 @MappedSuperclass
 public abstract class BaseAuditableEntity {
 

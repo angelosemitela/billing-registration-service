@@ -158,7 +158,7 @@
                  que, no JDK 25 usado neste projeto, o Lombok (que é implementado
                  como um annotation processor) simplesmente NUNCA rodava - por
                  isso builder(), getters/setters e o "log" do @Slf4j apareciam
-                 como "cannot find symbol" em to.do o projeto, mesmo com o Lombok
+                 como "cannot find symbol" em TODO o projeto, mesmo com o Lombok
                  presente no classpath. A partir de agora, precisamos declarar
                  explicitamente quais processadores rodar via
                  <annotationProcessorPaths> - deixa de ser "automático", mas em

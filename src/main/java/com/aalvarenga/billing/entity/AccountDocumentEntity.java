@@ -4,12 +4,12 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Mapeia {@code T_ACCOUNT_DOCUMENT}. Existe um UNIQUE(ACCOUNT_ID, TYPE) no
@@ -22,7 +22,7 @@ import lombok.ToString;
 @EqualsAndHashCode(callSuper = true, of = {})
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 @Entity
 @Table(name = "T_ACCOUNT_DOCUMENT")
 public class AccountDocumentEntity extends BaseAuditableEntity {
