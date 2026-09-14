@@ -75,7 +75,7 @@ public class PurchaseValidationService {
         validateProtocol(request.protocol());
 
         if (request.account().size() != 1) {
-            // O enunciado modela "account" como lista, mas todo o restante da regra de
+            // O enunciado modela "account" como lista, mas to.do o restante da regra de
             // negócio (uma compra = um assinante) só faz sentido para exatamente 1 elemento.
             // Ver README/ANALISE.md, seção "Inconsistências".
             throw BusinessException.badRequest("Exactly one account must be informed");
