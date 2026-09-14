@@ -3,7 +3,6 @@ package com.aalvarenga.billing.exception;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
 import com.aalvarenga.billing.service.RequestLogService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -12,6 +11,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Objects;
 
@@ -34,7 +34,9 @@ import java.util.Objects;
 public class GlobalExceptionHandler {
 
     private final RequestLogService requestLogService;
-    private final ObjectMapper objectMapper;
+    // Ver comentário equivalente em PurchaseService: Spring Boot 4.1 usa Jackson 3
+    // por padrão, cujo bean auto-configurado é do tipo JsonMapper.
+    private final JsonMapper objectMapper;
 
     /**
      * JSON malformado ou com um valor fora do enum esperado (ex:

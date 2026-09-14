@@ -3,13 +3,13 @@ package com.aalvarenga.billing.service;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
 import com.aalvarenga.billing.exception.BusinessException;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Fachada (Facade) do caso de uso "registrar uma compra": é o único ponto de
@@ -29,7 +29,12 @@ public class PurchaseService {
     private final PurchaseValidationService purchaseValidationService;
     private final PurchaseOrchestrationService purchaseOrchestrationService;
     private final RequestLogService requestLogService;
-    private final ObjectMapper objectMapper;
+    // Spring Boot 4.1 passou a usar o Jackson 3 por padrão (pacote "tools.jackson.*",
+    // no lugar do antigo "com.fasterxml.jackson.*"). O bean de auto-configuração
+    // agora é do tipo JsonMapper (subclasse "pronta para JSON" de ObjectMapper) -
+    // ver README, seção "Inconsistências/decisões", para o contexto completo dessa
+    // migração e das alternativas consideradas (Jackson 2 via módulo de compatibilidade).
+    private final JsonMapper objectMapper;
 
     public ResponseEntity<PurchaseResponse> process(PurchaseRequest request) {
         String inputJson = toJsonSafely(request);
@@ -64,7 +69,11 @@ public class PurchaseService {
     private String toJsonSafely(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
+            // No Jackson 3, JacksonException é unchecked (RuntimeException) - antes,
+            // no Jackson 2, JsonProcessingException era checked. Mantemos o try/catch
+            // mesmo assim: é uma falha "esperada" (objeto não serializável) e não
+            // queremos que ela derrube a resposta HTTP só porque o log deu errado.
             return "<unable to serialize: " + e.getMessage() + ">";
         }
     }

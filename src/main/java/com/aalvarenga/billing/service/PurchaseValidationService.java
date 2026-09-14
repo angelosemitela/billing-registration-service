@@ -147,9 +147,17 @@ public class PurchaseValidationService {
 
         // externalId, quando informado (em conta nova OU em atualização cadastral),
         // não pode já pertencer a OUTRA conta.
+        //
+        // Nota Java: "existingAccount" é reatribuída lá em cima (linha ~133), então
+        // ela NÃO é "effectively final" - e uma lambda só pode capturar variáveis
+        // locais finais ou effectively final (a JVM precisa garantir que o valor não
+        // muda depois que a lambda "guardou" a referência). Por isso criamos essa
+        // cópia (accountBeingUpdated), que nunca é reatribuída, só para uso dentro
+        // do lambda abaixo.
+        AccountEntity accountBeingUpdated = existingAccount;
         if (!isBlank(accountRequest.externalId())) {
             accountRepository.findByExternalId(accountRequest.externalId()).ifPresent(other -> {
-                boolean belongsToAnotherAccount = existingAccount == null || !other.getId().equals(existingAccount.getId());
+                boolean belongsToAnotherAccount = accountBeingUpdated == null || !other.getId().equals(accountBeingUpdated.getId());
                 if (belongsToAnotherAccount) {
                     throw BusinessException.conflict("account.externalId is already registered for another account");
                 }
@@ -382,7 +390,7 @@ public class PurchaseValidationService {
 
             BigDecimal taxSum = billing.tax() == null ? BigDecimal.ZERO
                     : billing.tax().stream().map(t -> t.value() == null ? BigDecimal.ZERO : t.value())
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (!MoneyUtil.equalsMoney(taxSum, billing.taxValue())) {
                 throw BusinessException.preconditionFailed("The sum of taxes does not match on product " + billing.codeId());
             }

@@ -41,6 +41,14 @@
              oficialmente até Java 26, então não há incompatibilidade. -->
         <java.version>25</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Sobrescreve a versão de Lombok gerenciada pelo BOM do Spring Boot
+             (1.18.46) por uma mais recente (1.18.48) - a partir do JDK 23, o
+             javac passou a exigir versões atualizadas para lidar corretamente
+             com as novas APIs internas do compilador (ver comentário abaixo,
+             em <annotationProcessorPaths>, sobre o motivo real do build ter
+             quebrado). -->
+        <lombok.version>1.18.48</lombok.version>
     </properties>
 
     <dependencies>
@@ -140,6 +148,32 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- A partir do JDK 23, o javac deixou de "escanear" automaticamente
+                 o classpath de compilação procurando processadores de anotação
+                 (medida de segurança contra ataques de supply-chain via jars
+                 maliciosos disfarçados de annotation processor). Isso significa
+                 que, no JDK 25 usado neste projeto, o Lombok (que é implementado
+                 como um annotation processor) simplesmente NUNCA rodava - por
+                 isso builder(), getters/setters e o "log" do @Slf4j apareciam
+                 como "cannot find symbol" em TODO o projeto, mesmo com o Lombok
+                 presente no classpath. A partir de agora, precisamos declarar
+                 explicitamente quais processadores rodar via
+                 <annotationProcessorPaths> - deixa de ser "automático", mas em
+                 troca fica explícito e não depende de heurística do compilador. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
         </plugins>
