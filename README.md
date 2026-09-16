@@ -232,11 +232,40 @@ vira uma **migration nova**, nunca uma edição da antiga - é assim que
 `V4`, `V5`, `V6` e `V7` deste projeto nasceram, todas depois do primeiro
 teste end-to-end bem-sucedido.
 
+### Auditoria de tabelas
+
+Toda tabela de **aplicação** (não-domínio - `T_ACCOUNT`, `T_PRODUCT`,
+`T_BILL`, `T_BILL_INSTALLMENT` etc.) tem uma tabela gêmea de auditoria com
+sufixo `_AU` (`T_ACCOUNT_AU`, `T_PRODUCT_AU`, ...), criada em
+`V3__create_audit_infrastructure.sql`. Cada uma dessas tabelas `_AU`
+replica **todas** as colunas da tabela original, mais duas colunas
+próprias: `AUDIT_DT` (quando a auditoria foi gravada) e `COMMAND`
+(`'UPDATE'` ou `'DELETE'`).
+
+Duas triggers por tabela (`TRG_<tabela>_AU_UPD` e `TRG_<tabela>_AU_DEL`,
+ambas `BEFORE UPDATE`/`BEFORE DELETE`) fazem essa gravação automaticamente:
+antes de uma linha ser alterada ou excluída, o valor **anterior** (`OLD.*`)
+é copiado para a tabela `_AU` correspondente - uma "fotografia" do estado
+anterior, sem depender de nenhum código Java para isso.
+
+**Duas armadilhas já encontradas neste projeto por causa desse padrão**
+(ambas resolvidas, ver as seções de compatibilidade mais abaixo):
+1. **Nada sincroniza `_AU` automaticamente com a tabela original.** Sempre
+   que uma migration nova (`V5`, `V6`, `V7`...) adiciona/altera uma coluna
+   na tabela de aplicação, a tabela `_AU` e as duas triggers precisam ser
+   atualizadas manualmente na mesma migration - inclusive as triggers, que
+   precisam ser recriadas do zero (`DROP TRIGGER` + `CREATE TRIGGER`) já
+   que o MySQL não suporta `ALTER TRIGGER`.
+2. **Todo ajuste de *tipo* de coluna também precisa ser replicado.** Foi
+   assim que o mesmo bug de "Row size too large" apareceu duas vezes neste
+   projeto: primeiro em `T_LOG` (`V2`), depois em `T_LOG_AU` (`V3`) - ver
+   ["Nota de compatibilidade: limite de tamanho de linha do MySQL"](#nota-de-compatibilidade-limite-de-tamanho-de-linha-do-mysql-t_log-e-t_log_au).
+
 ### Convenções de modelagem (aplicadas em TODAS as tabelas)
 
 - Datas: `BIGINT` (epoch em milissegundos) - conversão feita em `EpochDateUtil`.
 - Booleanos: `CHAR(1)` (`"1"`/`"0"`) - conversão feita em `BooleanCharConverter` (JPA `AttributeConverter`).
-- Toda tabela de aplicação (não-domínio) tem uma tabela `_AU` gêmea e duas triggers (`BEFORE UPDATE`, `BEFORE DELETE`) que fotografam o registro antes da alteração/exclusão.
+- Toda tabela de aplicação (não-domínio) tem uma tabela `_AU` gêmea e duas triggers (`BEFORE UPDATE`, `BEFORE DELETE`) que fotografam o registro antes da alteração/exclusão - ver ["Auditoria de tabelas"](#auditoria-de-tabelas) acima.
 
 ## Inconsistências encontradas na especificação e decisões tomadas
 

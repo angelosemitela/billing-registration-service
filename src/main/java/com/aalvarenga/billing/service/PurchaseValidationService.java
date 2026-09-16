@@ -80,7 +80,7 @@ public class PurchaseValidationService {
             // Ver README/ANALISE.md, seção "Inconsistências".
             throw BusinessException.badRequest("Exactly one account must be informed");
         }
-        AccountEntity existingAccount = validateAccount(request.account().get(0));
+        AccountEntity existingAccount = validateAccount(request.account().getFirst());
 
         validateProducts(request.product());
 

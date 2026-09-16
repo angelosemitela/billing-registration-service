@@ -41,17 +41,18 @@ public class PurchaseOrchestrationService {
     private final BillingService billingService;
 
     /**
-     * @Transactional aqui é o que garante atomicidade: se qualquer INSERT
-     * falhar no meio do caminho (ex: uma constraint do banco que escapou da
-     * validação em memória), TUDO o que já tinha sido gravado nesta mesma
-     * chamada é desfeito (rollback) - nunca fica uma compra "pela metade".
+     * A anotação {@code @Transactional} aqui é o que garante atomicidade: se
+     * qualquer INSERT falhar no meio do caminho (ex: uma constraint do banco
+     * que escapou da validação em memória), TUDO o que já tinha sido gravado
+     * nesta mesma chamada é desfeito (rollback) - nunca fica uma compra
+     * "pela metade".
      */
     @Transactional
     public PurchaseResponse persistAndBuildResponse(PurchaseRequest request, ValidatedPurchaseContext context) {
-        AccountEntity account = accountService.resolveAccount(request.account().get(0), context.existingAccount());
-        accountService.upsertDocuments(request.account().get(0).document(), account.getId());
-        accountService.insertAddresses(request.account().get(0).address(), account.getId());
-        accountService.insertPhones(request.account().get(0).phone(), account.getId());
+        AccountEntity account = accountService.resolveAccount(request.account().getFirst(), context.existingAccount());
+        accountService.upsertDocuments(request.account().getFirst().document(), account.getId());
+        accountService.insertAddresses(request.account().getFirst().address(), account.getId());
+        accountService.insertPhones(request.account().getFirst().phone(), account.getId());
 
         Map<PaymentMethod, PaymentEntity> payments = paymentService.persistPayments(request.payment(), account.getId());
         PaymentEntity defaultPayment = payments.values().stream()
