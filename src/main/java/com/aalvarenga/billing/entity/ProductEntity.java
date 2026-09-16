@@ -31,6 +31,14 @@ import java.math.BigDecimal;
 @Table(name = "T_PRODUCT")
 public class ProductEntity extends BaseAuditableEntity {
 
+    // FK para T_ACCOUNT - adicionada na V5__add_product_account_id.sql.
+    // Sem esta coluna não havia como responder "quais produtos pertencem à
+    // conta X" com uma consulta ao banco: a associação só existia "de
+    // passagem", dentro do Map<codeId, ProductEntity> em memória usado por
+    // PurchaseOrchestrationService durante o processamento de UMA requisição.
+    @Column(name = "ACCOUNT_ID", nullable = false)
+    private Long accountId;
+
     /** codeId informado na entrada (ver nota sobre a inconsistência id/codeId no README). */
     @Column(name = "PRODUCT_ID", nullable = false, length = 100)
     private String productId;

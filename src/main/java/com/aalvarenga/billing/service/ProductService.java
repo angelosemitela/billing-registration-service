@@ -36,12 +36,14 @@ public class ProductService {
      * @param transactionDateEpochMillis {@code transactionDate} já convertida
      * @param channel                  canal da venda ({@code channel} da entrada)
      * @param defaultPayment           pagamento marcado como {@code isDefault=true}, se houver (já persistido)
+     * @param accountId                ID técnico da conta (já persistida) à qual estes produtos pertencem
      * @return mapa {@code codeId} -> entidade persistida, na ordem da requisição
      */
     public Map<String, ProductEntity> persistProducts(List<ProductRequest> products,
                                                         long transactionDateEpochMillis,
                                                         String channel,
-                                                        PaymentEntity defaultPayment) {
+                                                        PaymentEntity defaultPayment,
+                                                        Long accountId) {
         Map<String, ProductEntity> persisted = new LinkedHashMap<>();
         for (ProductRequest request : products) {
             boolean isRecurrence = request.type() == ProductType.RECURRENCE;
@@ -67,6 +69,7 @@ public class ProductService {
                     : null;
 
             ProductEntity entity = ProductEntity.builder()
+                    .accountId(accountId)
                     .productId(request.codeId())
                     .name(request.name())
                     .type(request.type().name())

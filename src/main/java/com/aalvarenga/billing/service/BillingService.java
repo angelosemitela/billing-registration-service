@@ -77,6 +77,18 @@ public class BillingService {
                     .paymentMethod(request.paymentMethod().name())
                     .status(DomainStatus.BILL_PAID_AWAITING_TRANSFER)
                     .billType(DomainStatus.BILL_TYPE_PURCHASE)
+                    // Vigência da fatura = mesma vigência já calculada para o
+                    // produto correspondente (mesma regra, só copiada - ver
+                    // V6__add_bill_cycle_and_payment_dates.sql).
+                    .cycleStartDt(product.getCycleStartDt())
+                    .cycleEndDt(product.getCycleEndDt())
+                    // Vencimento = TRANSACTION_DT, conforme decisão registrada
+                    // para o fluxo de "/api/v1/purchases" (não há hoje nenhuma
+                    // regra de prazo diferente disso).
+                    .dueDt(product.getTransactionDt())
+                    // PAYMENT_DT só é preenchido quando o repasse é efetivado
+                    // (fora do escopo desta v1) - fica null na criação.
+                    .paymentDt(null)
                     .build());
 
             persistTaxes(request.tax(), bill.getId());
@@ -119,6 +131,9 @@ public class BillingService {
                     .discountValue(discountSplit.get(i))
                     .taxValue(taxSplit.get(i))
                     .status(DomainStatus.BILL_INSTALLMENT_AWAITING_TRANSFER)
+                    // PAYMENT_DT (repasse desta parcela) fica null na criação -
+                    // ver V7__add_bill_installment_payment_date.sql.
+                    .paymentDt(null)
                     .build());
         }
     }

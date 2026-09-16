@@ -12,6 +12,7 @@ import com.aalvarenga.billing.entity.BillEntity;
 import com.aalvarenga.billing.entity.PaymentEntity;
 import com.aalvarenga.billing.entity.ProductEntity;
 import com.aalvarenga.billing.enums.PaymentMethod;
+import com.aalvarenga.billing.util.AssetIdFormatter;
 import com.aalvarenga.billing.util.PurchaseLookupUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -59,7 +60,7 @@ public class PurchaseOrchestrationService {
                 .orElse(null);
 
         Map<String, ProductEntity> products = productService.persistProducts(
-                request.product(), context.transactionDateEpochMillis(), request.channel(), defaultPayment);
+                request.product(), context.transactionDateEpochMillis(), request.channel(), defaultPayment, account.getId());
 
         List<BillEntity> bills = billingService.persistBillings(request.billing(), products, payments);
 
@@ -71,7 +72,7 @@ public class PurchaseOrchestrationService {
                                                    Map<String, ProductEntity> products,
                                                    Map<PaymentMethod, PaymentEntity> payments,
                                                    List<BillEntity> bills) {
-        List<AccountResponseItem> accountItems = List.of(new AccountResponseItem(String.valueOf(account.getId())));
+        List<AccountResponseItem> accountItems = List.of(new AccountResponseItem(AssetIdFormatter.account(account.getId())));
 
         List<ProductResponseItem> productItems = request.product().stream()
                 .map(ProductRequest::codeId)
@@ -95,16 +96,16 @@ public class PurchaseOrchestrationService {
     private ProductResponseItem toProductResponseItem(ProductEntity product) {
         return new ProductResponseItem(
                 product.getProductId(),
-                String.valueOf(product.getId()),
+                AssetIdFormatter.product(product.getId()),
                 product.getNextBillDt() != null ? String.valueOf(product.getNextBillDt()) : null,
                 product.getCycleEndDt() != null ? String.valueOf(product.getCycleEndDt()) : null,
                 product.getTrial(),
-                product.getDefaultPaymentId()
+                AssetIdFormatter.payment(product.getDefaultPaymentId())
         );
     }
 
     private PaymentResponseItem toPaymentResponseItem(PaymentEntity payment) {
-        return new PaymentResponseItem(payment.getMethod(), payment.getDefaultMethod(), String.valueOf(payment.getId()));
+        return new PaymentResponseItem(payment.getMethod(), payment.getDefaultMethod(), AssetIdFormatter.payment(payment.getId()));
     }
 
     private BillingResponseItem toBillingResponseItem(BillEntity bill, Map<String, ProductEntity> products) {
@@ -115,7 +116,7 @@ public class PurchaseOrchestrationService {
                 bill.getPaymentMethod(),
                 bill.getChargedValue(),
                 bill.getCurrency(),
-                String.valueOf(bill.getId())
+                AssetIdFormatter.billing(bill.getId())
         );
     }
 }

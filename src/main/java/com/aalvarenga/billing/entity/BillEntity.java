@@ -74,4 +74,22 @@ public class BillEntity extends BaseAuditableEntity {
 
     @Column(name = "BILL_TYPE", nullable = false)
     private Integer billType;
+
+    // Colunas adicionadas na V6__add_bill_cycle_and_payment_dates.sql.
+
+    /** Início do ciclo ao qual esta fatura se refere - copiado do produto correspondente (mesma regra de {@link ProductEntity#getCycleStartDt()}). */
+    @Column(name = "CYCLE_START_DT", nullable = false)
+    private Long cycleStartDt;
+
+    /** Fim do ciclo; {@code null} quando o produto não tem controle de vigência (mesma regra de {@link ProductEntity#getCycleEndDt()}). */
+    @Column(name = "CYCLE_END_DT")
+    private Long cycleEndDt;
+
+    /** Data de vencimento do pagamento; no fluxo de "/api/v1/purchases" usa o mesmo valor de {@code TRANSACTION_DT}. */
+    @Column(name = "DUE_DT", nullable = false)
+    private Long dueDt;
+
+    /** Data em que o repasse foi efetivado; sempre {@code null} na criação via "/api/v1/purchases". */
+    @Column(name = "PAYMENT_DT")
+    private Long paymentDt;
 }

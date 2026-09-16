@@ -48,6 +48,26 @@ docker run --name billing-mysql -e MYSQL_ROOT_PASSWORD=root \
 > `docker exec -it billing-mysql mysql -u root -proot -e "SET GLOBAL log_bin_trust_function_creators = 1;"`
 > uma vez (efeito equivalente, só que não sobrevive a um `docker restart`).
 
+> ⚠️ **Duas pegadinhas comuns ao digitar esse comando de memória**:
+>
+> 1. **Posição da flag `--log-bin-trust-function-creators=1`**: ela precisa
+>    vir *depois* do nome da imagem (`mysql:8.4`), nunca antes. A sintaxe do
+>    `docker run` é `docker run [OPÇÕES DO DOCKER] IMAGEM [ARGUMENTOS DO
+>    PROCESSO DENTRO DO CONTAINER]` - tudo que vem depois da imagem é
+>    repassado para o `mysqld`, não é uma opção do Docker. Colocá-la antes de
+>    `mysql:8.4` gera o erro `unknown flag: --log-bin-trust-function-creators`.
+> 2. **Recriar o container sem `MYSQL_USER`/`MYSQL_PASSWORD`**: essas duas
+>    variáveis são o que faz a imagem oficial do MySQL criar
+>    automaticamente o usuário `billing_app` (com `GRANT ALL` já aplicado
+>    sobre `billing_db`) na primeira subida. Se você recriar o container
+>    (`docker rm` + `docker run` de novo) omitindo essas duas variáveis, só
+>    o usuário `root` existirá, e a aplicação falhará ao conectar (usuário
+>    `billing_app` não existe). Se isso acontecer e você não quiser
+>    recriar o container de novo, dá pra criar o usuário manualmente:
+>    ```bash
+>    docker exec -it billing-mysql mysql -u root -proot -e "CREATE USER 'billing_app'@'%' IDENTIFIED BY 'billing_app'; GRANT ALL PRIVILEGES ON billing_db.* TO 'billing_app'@'%'; FLUSH PRIVILEGES;"
+>    ```
+
 ### Rodando a aplicação
 
 ```bash
@@ -190,9 +210,27 @@ Os scripts de criação de banco ficam versionados como *migrations* do
 | `V1__create_domain_schema_and_seed_data.sql` | banco + tabelas de domínio (`T_DOMAIN_*`) já populadas |
 | `V2__create_application_schema.sql` | tabelas de aplicação (`T_ACCOUNT`, `T_PRODUCT`, `T_BILL`, ...) |
 | `V3__create_audit_infrastructure.sql` | tabelas `_AU` + triggers `BEFORE UPDATE`/`BEFORE DELETE` de auditoria |
+| `V4__add_domain_status_backend_values.sql` | coluna `BACKEND_VALUE` nas tabelas `T_DOMAIN_*_STATUS`/`T_DOMAIN_BILL_TYPE` |
+| `V5__add_product_account_id.sql` | `T_PRODUCT.ACCOUNT_ID` (FK para `T_ACCOUNT`) |
+| `V6__add_bill_cycle_and_payment_dates.sql` | `T_BILL.CYCLE_START_DT`/`CYCLE_END_DT`/`DUE_DT`/`PAYMENT_DT` |
+| `V7__add_bill_installment_payment_date.sql` | `T_BILL_INSTALLMENT.PAYMENT_DT` |
 
 Ver também `database/README.md` para mais detalhes sobre por que os scripts
 vivem ali (em vez de soltos em uma pasta separada).
+
+### Nota de boas práticas: por que V4+ em vez de editar V1/V2/V3
+
+Depois que uma migration já rodou num ambiente (o Flyway grava um checksum
+dela em `flyway_schema_history`), ela vira **imutável**: editar o arquivo
+retroativamente - mesmo que só para "arrumar" o `CREATE TABLE` original -
+faz o Flyway recusar a próxima subida com `Migration checksum mismatch`,
+porque o conteúdo do arquivo não bate mais com o que foi validado da
+primeira vez. A regra vale para qualquer ferramenta de migration (Flyway,
+Liquibase, Rails migrations, Django migrations...): toda mudança de schema
+decidida DEPOIS que a migration anterior já foi aplicada em algum ambiente
+vira uma **migration nova**, nunca uma edição da antiga - é assim que
+`V4`, `V5`, `V6` e `V7` deste projeto nasceram, todas depois do primeiro
+teste end-to-end bem-sucedido.
 
 ### Convenções de modelagem (aplicadas em TODAS as tabelas)
 
@@ -218,8 +256,13 @@ práticas" e a intenção mais provável do texto original).
    trial, desde que `chargedValue = 0`; caso contrário, erro `412`.
 3. **Geração de IDs**: o enunciado cita uma "regra de formação do
    AssetNumber" que nunca é definida. Assumimos que todo ID retornado ao
-   cliente (conta, produto, pagamento, fatura) é simplesmente o ID técnico
-   (auto-increment) da respectiva tabela, convertido para `String`.
+   cliente (conta, produto, pagamento, fatura) é o ID técnico (auto-increment)
+   da respectiva tabela, convertido para `String`. **Atualização**: por
+   pedido do usuário, passou a levar um prefixo curto por tipo de entidade
+   para ficar mais legível (`ACCT_1`, `PROD_2`, `PAY_3`, `BILL_4`) - ver
+   `com.aalvarenga.billing.util.AssetIdFormatter`. O prefixo é só de
+   apresentação: a chave técnica continua um `BIGINT` puro no banco (ver
+   javadoc da classe para o porquê disso importar).
 4. **Campo `payment` na resposta**: os métodos de pagamento são **sempre
    persistidos** no banco quando informados (necessários para cobranças
    futuras de recorrência), mas só aparecem no JSON de resposta quando há
@@ -233,6 +276,18 @@ práticas" e a intenção mais provável do texto original).
   o contrato real foi inferido a partir da intenção descrita nos comentários.
 - **`T_PRODUCT.PRODUCT_ID`** é descrito como vindo de `product.id`, mas a
   entrada só tem `product.codeId`. Assumimos `PRODUCT_ID = codeId`.
+  **Importante** (dúvida recorrente): `PRODUCT_ID` NÃO é uma cópia do `ID`
+  técnico da tabela - é o identificador do produto no sistema EXTERNO que
+  chamou a API (o `codeId` do payload de entrada, ex.: `"1"`, `"2"`), usado
+  para ecoar de volta o campo `codeId` na resposta. Quem replica o `ID`
+  técnico é a coluna `ASSET_ID` (ver decisão nº3 acima). Por guardar uma
+  informação genuinamente diferente (a referência do chamador), mantivemos
+  `PRODUCT_ID` na tabela em vez de removê-la.
+- **`T_PRODUCT` sem vínculo com `T_ACCOUNT`**: até a `V5`, não havia nenhuma
+  coluna ligando um produto à conta que o comprou - a associação só existia
+  "de passagem", dentro da mesma requisição HTTP. Adicionamos `ACCOUNT_ID`
+  (FK, `NOT NULL`), indispensável para consultas futuras do tipo "quais
+  produtos pertencem à conta X" (e para o job de recorrência).
 - **Nome de tabela inconsistente**: o enunciado usa `TB_DOMAIN_CURRENCY` (com
   `TB_`) enquanto todas as outras tabelas de domínio usam `T_`. Padronizado
   para `T_DOMAIN_CURRENCY`.
@@ -277,6 +332,38 @@ práticas" e a intenção mais provável do texto original).
   pagamentos informados, mas validamos essa consistência (erro `400` se não
   houver correspondência), por ser uma checagem de integridade mínima
   razoável.
+
+### Evoluções pedidas após o primeiro teste end-to-end (14-15/09/2026)
+
+Com o serviço já rodando de ponta a ponta, o usuário pediu um conjunto de
+ajustes pensando em consultas futuras (um próximo `GET`) e no job de
+recorrência. Todos entraram como migrations NOVAS (`V4` a `V7` - ver a nota
+de boas práticas acima sobre por que não editamos `V1`/`V2`/`V3`):
+
+- **`BACKEND_VALUE` nas tabelas `T_DOMAIN_*_STATUS`/`T_DOMAIN_BILL_TYPE`**
+  (`V4`): até aqui, essas tabelas só tinham `STATUS_DESC` (descrição em
+  português, para humanos). `BACKEND_VALUE` é um valor estável em inglês
+  (`ACTIVE`, `CANCELLED`, `PAID`...), pensado para ser devolvido em uma
+  futura API de consulta - várias linhas mapeiam para o mesmo
+  `BACKEND_VALUE` de propósito (ex.: os status de fatura 4/5/6 - "paga
+  aguardando repasse" / "em liquidação de parcelas" / "paga" - todos viram
+  `PAID` para quem consome de fora, mesmo sendo 3 granularidades internas
+  diferentes). **Suposição não confirmada**: acrescentamos
+  `T_DOMAIN_ACCOUNT_DOCUMENT_STATUS` à lista (não estava no pedido original)
+  por seguir exatamente o mesmo padrão `1=Ativo/2=Cancelado` das outras três
+  tabelas de status de conta - avise se não for para incluir.
+- **`T_PRODUCT.ACCOUNT_ID`** (`V5`): ver bullet dedicado logo acima, na
+  lista de inconsistências.
+- **`T_BILL.CYCLE_START_DT`/`CYCLE_END_DT`/`DUE_DT`/`PAYMENT_DT`** (`V6`):
+  os dois primeiros replicam a mesma vigência já calculada para o produto
+  correspondente (mesma regra de `T_PRODUCT`, só copiada no momento da
+  criação da fatura); `DUE_DT` usa o mesmo valor de `TRANSACTION_DT` no
+  fluxo de `/api/v1/purchases`; `PAYMENT_DT` fica `NULL` até que um
+  processo futuro efetive o repasse (mudando `STATUS` para "6 - Paga").
+- **`T_BILL_INSTALLMENT.PAYMENT_DT`** (`V7`): mesma lógica de
+  `T_BILL.PAYMENT_DT`, só que por parcela.
+- **Prefixo nos IDs de saída** (`ACCT_`/`PROD_`/`PAY_`/`BILL_`): ver decisão
+  nº3 atualizada acima e `com.aalvarenga.billing.util.AssetIdFormatter`.
 
 ### Nota de compatibilidade: Jackson 3 no Spring Boot 4.1
 

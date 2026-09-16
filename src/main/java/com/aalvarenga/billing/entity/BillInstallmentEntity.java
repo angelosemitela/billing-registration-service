@@ -50,4 +50,8 @@ public class BillInstallmentEntity extends BaseAuditableEntity {
 
     @Column(name = "STATUS", nullable = false)
     private Integer status;
+
+    /** Data em que o repasse desta parcela foi efetivado; sempre {@code null} na criação via "/api/v1/purchases" (ver V7__add_bill_installment_payment_date.sql). */
+    @Column(name = "PAYMENT_DT")
+    private Long paymentDt;
 }
