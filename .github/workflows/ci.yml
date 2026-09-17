@@ -1,0 +1,67 @@
+name: CI
+
+# Quando este workflow roda:
+# - em todo push para main/master (ex: merge de PR, ou push direto);
+# - em todo pull request que tenha main/master como destino - assim o
+#   resultado aparece já na tela do PR, ANTES do merge, que é o ponto em
+#   que um teste quebrado é mais barato de corrigir.
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+  # Permite rodar manualmente pela aba "Actions" do GitHub, sem precisar de
+  # push/PR - útil para reexecutar depois de uma falha de infraestrutura
+  # (ex: timeout do Maven Central) sem precisar criar um commit vazio.
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build, testes e cobertura (JaCoCo)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configura o JDK 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          # Cacheia o repositório local do Maven (~/.m2) entre execuções -
+          # evita rebaixar as mesmas dependências (Spring Boot, JUnit,
+          # Mockito etc.) a cada run, deixando o pipeline bem mais rápido.
+          cache: 'maven'
+
+      # "mvn test" já é suficiente aqui - o projeto liga o goal
+      # "jacoco:check" (o gate de cobertura mínima) à fase "test" do Maven
+      # (ver pom.xml), então rodar "test" já executa os testes E falha o
+      # build se a cobertura cair abaixo do mínimo combinado, sem precisar
+      # avançar até "verify"/"package".
+      #
+      # "-B" (batch mode) desliga prompts interativos do Maven, que não
+      # fazem sentido em CI. Nenhum banco de dados é necessário aqui: toda
+      # a suíte atual é de testes unitários com Mockito (sem
+      # @SpringBootTest/@DataJpaTest), então não há necessidade de subir um
+      # serviço de MySQL para este job - ver nota sobre isso no README.
+      # Usa o Maven já instalado na imagem do runner (ubuntu-latest já vem
+      # com uma versão recente do Maven). O projeto não versiona o Maven
+      # Wrapper (mvnw/mvnw.cmd) ainda - ver nota no README sobre isso como
+      # possível melhoria futura (fixaria a versão exata do Maven usada em
+      # CI e por qualquer dev que clone o repositório, independente do que
+      # estiver instalado na máquina).
+      - name: Rodar testes + gate de cobertura (mvn test)
+        run: mvn -B test
+
+      # Sobe o relatório HTML/CSV do JaCoCo como artefato do run, para dar
+      # uma olhada na cobertura linha a linha direto pela interface do
+      # GitHub Actions, sem precisar rodar localmente.
+      - name: Publicar relatório de cobertura (JaCoCo) como artefato
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 15

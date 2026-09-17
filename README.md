@@ -1,5 +1,11 @@
 # billing-registration-service
 
+[![CI](https://github.com/angelosemitela/billing-registration-service/actions/workflows/ci.yml/badge.svg)](https://github.com/angelosemitela/billing-registration-service/actions/workflows/ci.yml)
+
+> O selo acima só passa a exibir o status real depois do primeiro `push`
+> deste workflow para o GitHub (antes disso, o GitHub ainda não tem
+> nenhuma execução para mostrar).
+
 Serviço backend em **Java 25 + Spring Boot 4.1** que recebe, via REST, o
 registro de uma compra/assinatura e grava conta, produtos, pagamentos e
 faturas em um banco **MySQL**, aplicando um conjunto extenso de regras de
@@ -950,6 +956,57 @@ fechar essa lacuna aos poucos.
 > `PaymentMethod`/`ProductType`/`RecurrenceFrequency`/`ResultStatus` já
 > aparecem cobertos só porque são construídos indiretamente pelos testes de
 > service existentes - não porque alguém testou `values()` de propósito.
+
+### Integração contínua (CI) com GitHub Actions
+
+Além de rodar localmente, os testes (e o gate de cobertura do JaCoCo) rodam
+automaticamente no GitHub a cada `push`/pull request para `main`/`master`,
+via um workflow em `.github/workflows/ci.yml`.
+
+**Por que faz sentido rodar os testes em pipeline, e não só localmente:**
+- Garante que ninguém suba (ou faça merge de) código que quebra um teste ou
+  derruba a cobertura abaixo do mínimo combinado - o build falha
+  publicamente no GitHub, e não só "na máquina de quem esqueceu de rodar
+  `mvn test` antes do commit".
+- Roda o mesmo comando, no mesmo ambiente, toda vez - elimina o clássico
+  "na minha máquina funciona" (versão de JDK diferente, dependência
+  desatualizada no `.m2` local, etc.).
+- Num PR, o resultado aparece direto na tela de revisão, antes do merge -
+  o ponto mais barato para descobrir um problema.
+- É pré-requisito para travar a branch `main` (Settings → Branches →
+  Branch protection rules → "Require status checks to pass before
+  merging"), impedindo push direto ou merge de PR com o pipeline
+  vermelho - configuração feita na interface do GitHub, não neste
+  repositório.
+
+**O que o workflow faz:** configura o JDK 25 (Temurin), restaura o cache do
+`~/.m2` entre execuções, e roda `mvn test`. Isso já é suficiente para
+disparar o gate de cobertura, porque o goal `jacoco:check` está amarrado à
+fase `test` do Maven (ver `pom.xml`) - não é preciso avançar até
+`verify`/`package`. O relatório HTML/CSV do JaCoCo é publicado como
+artefato do run, então dá para abrir a cobertura linha a linha direto pela
+aba "Actions" do GitHub, sem rodar nada localmente.
+
+**Por que não precisa subir um MySQL no pipeline:** toda a suíte atual é de
+testes unitários com Mockito (repositórios e dependências mockados, sem
+`@SpringBootTest`/`@DataJpaTest`) - nenhum teste hoje toca um banco de
+verdade, então não há necessidade de um serviço de banco no job de CI. Isso
+muda no dia em que a camada de orquestração/persistência (`AccountService`
+etc., ver seção de cobertura acima) ganhar testes de integração com
+Testcontainers: nesse ponto, o job de CI passaria a precisar do Docker (que
+já vem pré-instalado nos runners `ubuntu-latest` do GitHub, então a
+mudança seria só na suíte de testes, não no workflow).
+
+**Possibilidades para estudos futuros:**
+
+| Aspecto | Usado neste projeto | Alternativas para estudar |
+|---|---|---|
+| Motor de CI/CD | GitHub Actions | GitLab CI/CD, Jenkins, CircleCI, Azure Pipelines, Bitbucket Pipelines |
+| Build reprodutível | `mvn` da imagem do runner | Maven Wrapper (`mvnw`/`mvnw.cmd`) versionado no repo, fixando a versão exata do Maven para CI e para qualquer dev que clone o projeto |
+| Visualização de cobertura | Artefato de CI (HTML/CSV do JaCoCo) | Codecov/Coveralls (upload automático do relatório, badge de % no README, comentário automático no PR com o diff de cobertura) |
+| Gate de qualidade | `jacoco:check` (limiar fixo, ver seção acima) | SonarQube/SonarCloud (gate de "cobertura no código novo", análise de duplicação, code smells, vulnerabilidades) |
+| Testes de integração em CI | Nenhum ainda (só unitários) | Testcontainers + serviço de MySQL real dentro do próprio job, ou `services:` do GitHub Actions apontando pra uma imagem `mysql` |
+| Empacotamento | Nenhum (só `test`) | Job adicional de `mvn package` + publicação da imagem Docker (`docker build`/`docker push`) em um registry, como próximo passo rumo a deploy contínuo (CD) |
 
 ## Evoluções futuras / outros frameworks para estudo
 
