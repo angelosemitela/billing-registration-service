@@ -40,14 +40,28 @@ class AssetIdFormatterTest {
         assertThat(AssetIdFormatter.payment("4")).isEqualTo("PAY_4");
     }
 
+    // As duas anotações abaixo suprimem um warning do IntelliJ ("Result of
+    // '...' is always 'null'") que é um FALSO POSITIVO aqui: a análise de
+    // fluxo de dados da IDE percebe corretamente que, dado um argumento
+    // literal null, o método SEMPRE retorna null - só que esse é
+    // exatamente o comportamento que este teste existe para comprovar, não
+    // um bug. Sem a anotação, a IDE mostraria warning para um teste
+    // correto e intencional.
+    @SuppressWarnings("ConstantValue")
     @Test
     void returnsNullWhenTechnicalIdIsNull_longOverload() {
-        assertThat(AssetIdFormatter.account((Long) null)).isNull();
-        assertThat(AssetIdFormatter.product((Long) null)).isNull();
-        assertThat(AssetIdFormatter.billing((Long) null)).isNull();
+        // Cast para Long é redundante em account/product/billing (só existe
+        // uma sobrecarga cada) - a IDE também aponta isso corretamente, por
+        // isso ele foi removido aqui. Já em payment(...) o cast é
+        // OBRIGATÓRIO: sem ele, "null" seria ambíguo entre as sobrecargas
+        // payment(Long) e payment(String) e o código não compilaria.
+        assertThat(AssetIdFormatter.account(null)).isNull();
+        assertThat(AssetIdFormatter.product(null)).isNull();
+        assertThat(AssetIdFormatter.billing(null)).isNull();
         assertThat(AssetIdFormatter.payment((Long) null)).isNull();
     }
 
+    @SuppressWarnings("ConstantValue")
     @Test
     void returnsNullWhenTechnicalIdIsNull_stringOverload() {
         assertThat(AssetIdFormatter.payment((String) null)).isNull();

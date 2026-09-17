@@ -12,4 +12,7 @@ target/
 .DS_Store
 *.log
 HELP.md
+
+# Pasta local de saídas geradas pelo Claude (zips, relatórios etc.) na raiz
+# do projeto - não faz parte do código-fonte, não deve ser versionada.
 Claude outputs/

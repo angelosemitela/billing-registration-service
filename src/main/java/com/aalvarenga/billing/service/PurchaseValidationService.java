@@ -358,7 +358,12 @@ public class PurchaseValidationService {
             throw BusinessException.badRequest("installments must be 1 for method " + method
                     + (relatedProductFrequency == RecurrenceFrequency.MONTH ? " with a MONTH recurrence product" : ""));
         }
-        if (!forcedSingleInstallment && (installments < 1 || installments > 12)) {
+        // A checagem "installments < 1" foi removida daqui (era código morto,
+        // apontado pelo inspector "Constant Value" da IDE): quando o fluxo
+        // chega até este ponto, a validação no início do método (linha acima,
+        // "installments == null || installments <= 0") já garante
+        // installments >= 1. Deixar a condição redundante só confundia leitura.
+        if (!forcedSingleInstallment && installments > 12) {
             throw BusinessException.badRequest("installments must be between 1 and 12 for method " + method);
         }
     }

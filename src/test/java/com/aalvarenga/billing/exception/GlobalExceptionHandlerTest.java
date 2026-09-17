@@ -62,15 +62,16 @@ class GlobalExceptionHandlerTest {
         when(ex.getCause()).thenReturn(null);
 
         ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
+        PurchaseResponse body = response.getBody();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().result()).isEqualTo(ResultStatus.ERROR);
-        assertThat(response.getBody().code()).isEqualTo("400");
-        assertThat(response.getBody().reason()).contains("Unexpected token");
+        assertThat(body).isNotNull();
+        assertThat(body.result()).isEqualTo(ResultStatus.ERROR);
+        assertThat(body.code()).isEqualTo("400");
+        assertThat(body.reason()).contains("Unexpected token");
         // Nenhum protocolo disponível nesse ponto (o Jackson nem conseguiu
         // montar o PurchaseRequest) - ver javadoc do método original.
-        assertThat(response.getBody().protocol()).isNull();
+        assertThat(body.protocol()).isNull();
     }
 
     @Test
@@ -82,8 +83,10 @@ class GlobalExceptionHandlerTest {
         when(ex.getCause()).thenReturn(rootCause);
 
         ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
+        PurchaseResponse body = response.getBody();
 
-        assertThat(response.getBody().reason()).contains("actual root cause message");
+        assertThat(body).isNotNull();
+        assertThat(body.reason()).contains("actual root cause message");
     }
 
     @Test
@@ -93,8 +96,10 @@ class GlobalExceptionHandlerTest {
         when(ex.getCause()).thenReturn(null);
 
         ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
+        PurchaseResponse body = response.getBody();
 
-        assertThat(response.getBody().reason()).contains("invalid payload");
+        assertThat(body).isNotNull();
+        assertThat(body.reason()).contains("invalid payload");
     }
 
     @Test
@@ -111,10 +116,12 @@ class GlobalExceptionHandlerTest {
         when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
 
         ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
+        PurchaseResponse body = response.getBody();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody().reason()).isEqualTo("channel: channel is required");
-        assertThat(response.getBody().protocol()).isEqualTo("PROTO-1");
+        assertThat(body).isNotNull();
+        assertThat(body.reason()).isEqualTo("channel: channel is required");
+        assertThat(body.protocol()).isEqualTo("PROTO-1");
         // Diferente do JSON malformado, aqui o objeto FOI construído com
         // sucesso, então a tentativa deve ser logada em T_LOG (ver javadoc).
         verify(requestLogService).log("PROTO-1", "ERROR", "400", "channel: channel is required",
@@ -133,9 +140,11 @@ class GlobalExceptionHandlerTest {
         when(bindingResult.getTarget()).thenReturn(null);
 
         ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
+        PurchaseResponse body = response.getBody();
 
-        assertThat(response.getBody().protocol()).isNull();
-        assertThat(response.getBody().reason()).isEqualTo("protocol: protocol is required");
+        assertThat(body).isNotNull();
+        assertThat(body.protocol()).isNull();
+        assertThat(body.reason()).isEqualTo("protocol: protocol is required");
         verify(requestLogService, never()).log(any(), any(), any(), any(), any(), any());
     }
 
@@ -148,8 +157,10 @@ class GlobalExceptionHandlerTest {
         when(bindingResult.getTarget()).thenReturn(null);
 
         ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
+        PurchaseResponse body = response.getBody();
 
-        assertThat(response.getBody().reason()).isEqualTo("Invalid request body");
+        assertThat(body).isNotNull();
+        assertThat(body.reason()).isEqualTo("Invalid request body");
     }
 
     @Test
