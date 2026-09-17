@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>O controller é intencionalmente "burro": ele só recebe o JSON, deixa o
  * Spring desserializá-lo e validá-lo estruturalmente ({@code @Valid}), e
- * delega TO.DO o resto (validação de negócio, persistência, log, tratamento
+ * delega TODO o resto (validação de negócio, persistência, log, tratamento
  * de erro) para {@link PurchaseService}. Isso mantém a camada web livre de
  * lógica de negócio - uma futura migração para, por exemplo, uma fila de
  * mensagens (Kafka) no lugar de REST, reaproveitaria o {@code PurchaseService}

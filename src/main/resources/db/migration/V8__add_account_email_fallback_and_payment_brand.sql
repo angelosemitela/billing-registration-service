@@ -1,0 +1,86 @@
+-- =============================================================================
+-- V8__add_account_email_fallback_and_payment_brand.sql
+--
+-- Acrescenta, a pedido do usuário (17/09/2026 - ver README, seção "Evoluções
+-- pedidas"):
+--   * T_ACCOUNT.EMAIL: e-mail da conta (texto livre). Sempre obrigatório em
+--     toda requisição (diferente de NAME/EXTERNAL_ID, que só são obrigatórios
+--     na criação de conta nova) - ver PurchaseValidationService.validateAccount.
+--   * T_ACCOUNT.AUTHORIZED_FALLBACK_B: se o assinante autoriza cobrança em
+--     método alternativo quando o principal falha (ex: sem sucesso no
+--     CREDIT, tenta no DEBIT). Também sempre obrigatório.
+--   * T_PAYMENT.BRAND: bandeira do cartão (VISA/MASTERCARD/AMEX/ELO),
+--     obrigatória apenas para METHOD = CREDIT/DEBIT - por isso é a única das
+--     três colunas novas que já nasce NULLABLE, sem exigir reset do banco.
+--
+-- ATENÇÃO - por que isso exige resetar o banco local para as duas colunas de
+-- T_ACCOUNT: assim como em V5/V6 (ver comentários lá), T_ACCOUNT já pode ter
+-- linha(s) de testes anteriores, e não existe um valor "correto" para
+-- adivinhar EMAIL/AUTHORIZED_FALLBACK_B de uma conta antiga. A migration
+-- abaixo assume a tabela vazia. Resete o banco de desenvolvimento antes de
+-- rodar `mvn spring-boot:run`:
+--   docker exec -it billing-mysql mysql -u root -proot \
+--     -e "DROP DATABASE billing_db; CREATE DATABASE billing_db;"
+-- =============================================================================
+
+ALTER TABLE T_ACCOUNT
+    ADD COLUMN EMAIL VARCHAR(200) NOT NULL,
+    ADD COLUMN AUTHORIZED_FALLBACK_B CHAR(1) NOT NULL;
+
+ALTER TABLE T_ACCOUNT_AU
+    ADD COLUMN EMAIL VARCHAR(200) NULL,
+    ADD COLUMN AUTHORIZED_FALLBACK_B CHAR(1) NULL;
+
+DROP TRIGGER TRG_T_ACCOUNT_AU_UPD;
+DROP TRIGGER TRG_T_ACCOUNT_AU_DEL;
+
+DELIMITER $$
+CREATE TRIGGER TRG_T_ACCOUNT_AU_UPD
+    BEFORE UPDATE ON T_ACCOUNT
+    FOR EACH ROW
+BEGIN
+    INSERT INTO T_ACCOUNT_AU (AUDIT_DT, COMMAND, ID, CREATED_DT, MODIFIED_DT, NAME, EXTERNAL_ID, STATUS, EMAIL, AUTHORIZED_FALLBACK_B)
+    VALUES (CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED), 'UPDATE', OLD.ID, OLD.CREATED_DT, OLD.MODIFIED_DT, OLD.NAME, OLD.EXTERNAL_ID, OLD.STATUS, OLD.EMAIL, OLD.AUTHORIZED_FALLBACK_B);
+END$$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER TRG_T_ACCOUNT_AU_DEL
+    BEFORE DELETE ON T_ACCOUNT
+    FOR EACH ROW
+BEGIN
+    INSERT INTO T_ACCOUNT_AU (AUDIT_DT, COMMAND, ID, CREATED_DT, MODIFIED_DT, NAME, EXTERNAL_ID, STATUS, EMAIL, AUTHORIZED_FALLBACK_B)
+    VALUES (CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED), 'DELETE', OLD.ID, OLD.CREATED_DT, OLD.MODIFIED_DT, OLD.NAME, OLD.EXTERNAL_ID, OLD.STATUS, OLD.EMAIL, OLD.AUTHORIZED_FALLBACK_B);
+END$$
+DELIMITER ;
+
+-- T_PAYMENT.BRAND nasce NULLABLE (PIX/WALLET nunca a informam) - nenhum
+-- reset de banco é necessário para esta coluna especificamente.
+ALTER TABLE T_PAYMENT
+    ADD COLUMN BRAND VARCHAR(20) NULL;
+
+ALTER TABLE T_PAYMENT_AU
+    ADD COLUMN BRAND VARCHAR(20) NULL;
+
+DROP TRIGGER TRG_T_PAYMENT_AU_UPD;
+DROP TRIGGER TRG_T_PAYMENT_AU_DEL;
+
+DELIMITER $$
+CREATE TRIGGER TRG_T_PAYMENT_AU_UPD
+    BEFORE UPDATE ON T_PAYMENT
+    FOR EACH ROW
+BEGIN
+    INSERT INTO T_PAYMENT_AU (AUDIT_DT, COMMAND, ID, CREATED_DT, MODIFIED_DT, ACCOUNT_ID, METHOD, ISSUER, CARD_NUMBER, EXPIRATION, MULTIPLE_B, DEFAULT_B, INSTALLMENTS, STATUS, BRAND)
+    VALUES (CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED), 'UPDATE', OLD.ID, OLD.CREATED_DT, OLD.MODIFIED_DT, OLD.ACCOUNT_ID, OLD.METHOD, OLD.ISSUER, OLD.CARD_NUMBER, OLD.EXPIRATION, OLD.MULTIPLE_B, OLD.DEFAULT_B, OLD.INSTALLMENTS, OLD.STATUS, OLD.BRAND);
+END$$
+DELIMITER ;
+
+DELIMITER $$
+CREATE TRIGGER TRG_T_PAYMENT_AU_DEL
+    BEFORE DELETE ON T_PAYMENT
+    FOR EACH ROW
+BEGIN
+    INSERT INTO T_PAYMENT_AU (AUDIT_DT, COMMAND, ID, CREATED_DT, MODIFIED_DT, ACCOUNT_ID, METHOD, ISSUER, CARD_NUMBER, EXPIRATION, MULTIPLE_B, DEFAULT_B, INSTALLMENTS, STATUS, BRAND)
+    VALUES (CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED), 'DELETE', OLD.ID, OLD.CREATED_DT, OLD.MODIFIED_DT, OLD.ACCOUNT_ID, OLD.METHOD, OLD.ISSUER, OLD.CARD_NUMBER, OLD.EXPIRATION, OLD.MULTIPLE_B, OLD.DEFAULT_B, OLD.INSTALLMENTS, OLD.STATUS, OLD.BRAND);
+END$$
+DELIMITER ;

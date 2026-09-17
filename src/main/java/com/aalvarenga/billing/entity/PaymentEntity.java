@@ -61,4 +61,14 @@ public class PaymentEntity extends BaseAuditableEntity {
 
     @Column(name = "STATUS", nullable = false)
     private Integer status;
+
+    /**
+     * Bandeira do cartão (VISA/MASTERCARD/AMEX/ELO) - acrescentada em
+     * V8__add_account_email_fallback_and_payment_brand.sql (17/09/2026).
+     * NULLABLE porque só é obrigatória para METHOD = CREDIT/DEBIT (ver
+     * PurchaseValidationService.validatePayments); PIX/WALLET nunca a
+     * informam.
+     */
+    @Column(name = "BRAND", length = 20)
+    private String brand;
 }

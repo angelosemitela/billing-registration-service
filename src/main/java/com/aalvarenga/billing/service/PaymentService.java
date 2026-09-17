@@ -54,6 +54,7 @@ public class PaymentService {
                     .defaultMethod(request.isDefault())
                     .installments(String.valueOf(request.installments()))
                     .status(DomainStatus.PAYMENT_ACTIVE)
+                    .brand(request.brand() != null ? request.brand().name() : null)
                     .build());
 
             persistTokens(request.token(), entity.getId());

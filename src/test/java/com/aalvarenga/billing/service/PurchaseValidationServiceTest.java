@@ -61,12 +61,52 @@ class PurchaseValidationServiceTest {
     }
 
     @Test
-    void rejectsTransactionDateInTheFuture() {
+    void rejectsTransactionDtInTheFuture() {
         PurchaseRequest request = baseRequestBuilder(String.valueOf(System.currentTimeMillis() + 60_000), List.of());
 
         assertThatThrownBy(() -> service.validate(request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("transactionDate cannot be in the future");
+                .hasMessageContaining("transactionDt cannot be in the future");
+    }
+
+    // ------------------------------------------------------------------
+    // Campos acrescentados em 17/09/2026 (ver README, seção "Evoluções
+    // pedidas em 17/09/2026"): account.email, account.isAuthorizedFallback
+    // e payment.brand.
+    // ------------------------------------------------------------------
+
+    @Test
+    void rejectsWhenAccountEmailIsBlank() {
+        PurchaseRequest request = requestWithAccount(
+                new AccountRequest("123", null, null, null, null, null, "   ", true));
+
+        assertThatThrownBy(() -> service.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("account.email is required");
+    }
+
+    @Test
+    void rejectsWhenAccountIsAuthorizedFallbackIsNull() {
+        PurchaseRequest request = requestWithAccount(
+                new AccountRequest("123", null, null, null, null, null, "test@example.com", null));
+
+        assertThatThrownBy(() -> service.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("account.isAuthorizedFallback is required");
+    }
+
+    @Test
+    void rejectsWhenCreditPaymentIsMissingBrand() {
+        when(currencyDomainRepository.existsById(anyString())).thenReturn(true);
+
+        // "brand" propositalmente omitido (null) - método CREDIT o exige.
+        PaymentRequest creditWithoutBrand = new PaymentRequest(
+                PaymentMethod.CREDIT, "Santander", "1111222233334444", "12/79", true, true, 1, null, null);
+        PurchaseRequest request = requestWithPayment(creditWithoutBrand);
+
+        assertThatThrownBy(() -> service.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("payment.brand is required");
     }
 
     @Test
@@ -122,8 +162,9 @@ class PurchaseValidationServiceTest {
     }
 
     /** Monta uma requisição mínima e válida (1 produto RECURRENCE simples), variando apenas a data e o billing. */
-    private PurchaseRequest baseRequestBuilder(String transactionDate, List<BillingRequest> billing) {
-        AccountRequest account = new AccountRequest("123", null, null, null, null, null);
+    private PurchaseRequest baseRequestBuilder(String transactionDt, List<BillingRequest> billing) {
+        AccountRequest account = new AccountRequest(
+                "123", null, null, null, null, null, "test@example.com", true);
         ProductRequest product = new ProductRequest(
                 "1", "Test Streaming 1", ProductType.ONESHOT, true, null,
                 new BigDecimal("10.00"), BigDecimal.ZERO, null, "BRL", false, null);
@@ -131,14 +172,44 @@ class PurchaseValidationServiceTest {
         // Pagamento PIX "neutro", só para satisfazer a regra "payment é obrigatório
         // quando há cobrança efetiva" nos testes focados em billing - não é o alvo
         // destes testes, mas precisa existir para a validação chegar até o billing.
-        PaymentRequest payment = new PaymentRequest(PaymentMethod.PIX, null, null, null, null, true, 1, null);
+        // "brand" fica null porque PIX não é card-based (não é obrigatório).
+        PaymentRequest payment = new PaymentRequest(PaymentMethod.PIX, null, null, null, null, true, 1, null, null);
 
         // "lenient" porque nem todo teste chega a exercitar estas consultas (ex: o
-        // teste que valida transactionDate no futuro falha ANTES de chegar aqui).
+        // teste que valida transactionDt no futuro falha ANTES de chegar aqui).
         lenient().when(accountRepository.findById(123L)).thenReturn(java.util.Optional.of(
                 com.aalvarenga.billing.entity.AccountEntity.builder().id(123L).name("x").externalId("ext-1").status(1).build()));
         lenient().when(logRepository.findByProtocol(anyString())).thenReturn(List.of());
 
-        return new PurchaseRequest("WEB", transactionDate, "WEB-12345", List.of(account), List.of(product), List.of(payment), billing);
+        return new PurchaseRequest("WEB", transactionDt, "WEB-12345", List.of(account), List.of(product), List.of(payment), billing);
+    }
+
+    /** Variante de {@link #baseRequestBuilder} que troca só o "account", mantendo produto/pagamento neutros. */
+    private PurchaseRequest requestWithAccount(AccountRequest account) {
+        ProductRequest product = new ProductRequest(
+                "1", "Test Streaming 1", ProductType.ONESHOT, true, null,
+                new BigDecimal("10.00"), BigDecimal.ZERO, null, "BRL", false, null);
+        PaymentRequest payment = new PaymentRequest(PaymentMethod.PIX, null, null, null, null, true, 1, null, null);
+
+        lenient().when(accountRepository.findById(123L)).thenReturn(java.util.Optional.of(
+                com.aalvarenga.billing.entity.AccountEntity.builder().id(123L).name("x").externalId("ext-1").status(1).build()));
+        lenient().when(logRepository.findByProtocol(anyString())).thenReturn(List.of());
+
+        return new PurchaseRequest("WEB", String.valueOf(pastEpoch()), "WEB-12345", List.of(account), List.of(product), List.of(payment), List.of());
+    }
+
+    /** Variante de {@link #baseRequestBuilder} que troca só o "payment", mantendo conta/produto neutros. */
+    private PurchaseRequest requestWithPayment(PaymentRequest payment) {
+        AccountRequest account = new AccountRequest(
+                "123", null, null, null, null, null, "test@example.com", true);
+        ProductRequest product = new ProductRequest(
+                "1", "Test Streaming 1", ProductType.ONESHOT, true, null,
+                new BigDecimal("10.00"), BigDecimal.ZERO, null, "BRL", false, null);
+
+        lenient().when(accountRepository.findById(123L)).thenReturn(java.util.Optional.of(
+                com.aalvarenga.billing.entity.AccountEntity.builder().id(123L).name("x").externalId("ext-1").status(1).build()));
+        lenient().when(logRepository.findByProtocol(anyString())).thenReturn(List.of());
+
+        return new PurchaseRequest("WEB", String.valueOf(pastEpoch()), "WEB-12345", List.of(account), List.of(product), List.of(payment), List.of());
     }
 }

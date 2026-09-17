@@ -214,6 +214,9 @@ Os scripts de criação de banco ficam versionados como *migrations* do
 | `V5__add_product_account_id.sql` | `T_PRODUCT.ACCOUNT_ID` (FK para `T_ACCOUNT`) |
 | `V6__add_bill_cycle_and_payment_dates.sql` | `T_BILL.CYCLE_START_DT`/`CYCLE_END_DT`/`DUE_DT`/`PAYMENT_DT` |
 | `V7__add_bill_installment_payment_date.sql` | `T_BILL_INSTALLMENT.PAYMENT_DT` |
+| `V8__add_account_email_fallback_and_payment_brand.sql` | `T_ACCOUNT.EMAIL`/`AUTHORIZED_FALLBACK_B`, `T_PAYMENT.BRAND` |
+| `V9__add_product_disable_billing_and_cancellation.sql` | `T_PRODUCT.DISABLE_BILLING_B`/`CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT` |
+| `V10__create_config_feature_toggle.sql` | tabela `T_CONFIG_FEATURE_TOGGLE` (+ `_AU`) - liga/desliga regras em runtime |
 
 Ver também `database/README.md` para mais detalhes sobre por que os scripts
 vivem ali (em vez de soltos em uma pasta separada).
@@ -393,6 +396,95 @@ de boas práticas acima sobre por que não editamos `V1`/`V2`/`V3`):
   `T_BILL.PAYMENT_DT`, só que por parcela.
 - **Prefixo nos IDs de saída** (`ACCT_`/`PROD_`/`PAY_`/`BILL_`): ver decisão
   nº3 atualizada acima e `com.aalvarenga.billing.util.AssetIdFormatter`.
+
+### Evoluções pedidas em 17/09/2026
+
+Uma segunda rodada de ajustes, também via migrations novas (`V8` a `V10`
+- mesma regra de nunca editar migration já aplicada):
+
+- **Renomeação `transactionDate` → `transactionDt`** no payload raiz da
+  requisição: só um ajuste de nomenclatura, para manter o padrão já usado em
+  todos os outros campos de data do contrato (sufixo `Dt`/`DT`, nunca
+  `Date`). Não gera coluna nova nem migration - é só `PurchaseRequest` e
+  quem o consome (`PurchaseValidationService`, testes).
+- **`account.email`** (`T_ACCOUNT.EMAIL`, `V8`): e-mail da conta, texto
+  livre. **Sempre obrigatório**, em toda requisição - diferente de
+  `name`/`externalId`, que só são exigidos quando a conta é nova (ver
+  `PurchaseValidationService.validateAccount`).
+- **`account.isAuthorizedFallback`** (`T_ACCOUNT.AUTHORIZED_FALLBACK_B`,
+  `V8`): booleano indicando se o assinante autoriza cobrança em um método de
+  pagamento alternativo quando o principal falha (ex.: sem sucesso no
+  `CREDIT`, tenta automaticamente no `DEBIT`). Também sempre obrigatório.
+  Por enquanto só é **persistido** - a lógica de retentativa em si (qual
+  serviço decide "falhou, tenta o próximo") é um passo futuro, fora do
+  escopo desta compra inicial.
+- **`payment.brand`** (`T_PAYMENT.BRAND`, `V8`) + enum `CardBrand`
+  (`VISA`/`MASTERCARD`/`AMEX`/`ELO`): obrigatório apenas quando
+  `payment.method` é `CREDIT` ou `DEBIT` (`PaymentMethod.isCardBased()`).
+  Um valor de enum inválido (ex.: `"brand": "DINERS"`) já é rejeitado
+  automaticamente pelo Jackson, na desserialização - antes mesmo de o
+  código de validação rodar - e cai no mesmo tratamento de "JSON malformado"
+  (`GlobalExceptionHandler.handleMalformedJson`, HTTP 400) já usado pelos
+  outros enums do contrato (`PaymentMethod`, `ProductType`,
+  `RecurrenceFrequency`, `DocumentType`, `AddressType`). Por isso
+  `PurchaseValidationService` só precisa checar ausência (`null`), não
+  "valor inválido" - essa segunda checagem já é gratuita.
+- **`T_PRODUCT.DISABLE_BILLING_B`** (`V9`): sempre `'1'` quando
+  `product.type` é `"ONESHOT"`, sempre `'0'` nos demais casos. Regra
+  derivada de outra coluna já existente na própria linha (`TYPE`) - por
+  isso, diferente de `V8` (ver abaixo), esta coluna pôde nascer `NOT NULL`
+  sem exigir reset do banco: a migration faz `ADD COLUMN NULL` → `UPDATE`
+  com a regra `CASE WHEN TYPE = 'ONESHOT' THEN '1' ELSE '0' END` → `MODIFY
+  NOT NULL` (mesmo padrão de 3 passos já usado em `V4` para
+  `BACKEND_VALUE`).
+- **Mecanismo de *feature toggle*** (tabela nova `T_CONFIG_FEATURE_TOGGLE` +
+  `_AU`, `V10`): uma tabela de configuração que liga/desliga, em runtime
+  (sem novo deploy), regras de negócio condicionais. Curiosidade de
+  modelagem: apesar de ser uma tabela de "configuração", ela **é** auditada
+  (tem `_AU` + triggers, como qualquer tabela de aplicação) - diferente das
+  `T_DOMAIN_*`, que não são auditadas por não mudarem por ação de usuário
+  final. A diferença é justamente que `STATUS_B` de uma regra **pode** ser
+  alterado em produção (ex.: um administrador desligando a regra), então
+  faz sentido rastrear quem mudou o quê. Lida através de
+  `FeatureToggleService.isEnabled(String ruleName)`, com nomes de regra
+  centralizados em `FeatureToggleRules` (mesmo padrão de constantes já usado
+  em `DomainStatus`) - e com um comportamento *fail-safe*: se o nome da
+  regra não existir na tabela, é tratado como **desligada** (`false`) e um
+  aviso é logado, em vez de lançar exceção.
+  - Regra semeada (nasce **ligada**, `STATUS_B = '1'`):
+    `AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT` - "Agenda o cancelamento
+    automático para assinantes que possuem serviço associado em compras One
+    Shot".
+- **`T_PRODUCT.CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT`** (`V9`, sempre
+  `NULLABLE`): preenchidas por `ProductService.persistProducts` somente
+  quando a regra `AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT` está **ligada** E
+  o produto é `product.type = "ONESHOT"` com `product.isExpiriationService
+  = true`. Nesse caso, `CANCELLATION_REQ_DT` recebe a data da própria
+  requisição (`transactionDt`, em epoch ms) e `CANCELLATION_SCH_DT` recebe o
+  `CYCLE_END_DT` já calculado pelo serviço de recorrência. Em qualquer outro
+  caso (regra desligada, produto não é `ONESHOT`, ou não tem vigência),
+  ambas as colunas ficam `NULL`.
+- **`exemplo-requisicao.json`** foi atualizado com todos os campos acima
+  (`transactionDt`, `account.email`, `account.isAuthorizedFallback`,
+  `payment.brand` em cada um dos dois pagamentos de exemplo).
+
+**Atenção - reset do banco local exigido para `V8`**: assim como em
+`V5`/`V6` (colunas sem valor "correto" possível de adivinhar para uma linha
+já existente), `T_ACCOUNT.EMAIL` e `T_ACCOUNT.AUTHORIZED_FALLBACK_B` nascem
+`NOT NULL` sem um passo de *backfill* - a migration assume a tabela vazia.
+Antes de rodar `mvn spring-boot:run` depois de baixar esta versão, resete o
+banco de desenvolvimento:
+
+```bash
+docker exec -it billing-mysql mysql -u root -proot \
+  -e "DROP DATABASE billing_db; CREATE DATABASE billing_db;"
+```
+
+`V9` e `V10` **não** exigem esse reset: `V9.DISABLE_BILLING_B` é
+preenchida por *backfill* determinístico (a partir de `TYPE`, já existente
+na mesma linha) antes de virar `NOT NULL`, e as demais colunas novas
+(`CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT`, `T_PAYMENT.BRAND`) nascem
+`NULLABLE`; `V10` só cria uma tabela nova.
 
 ### Nota de compatibilidade: Jackson 3 no Spring Boot 4.1
 
@@ -683,6 +775,15 @@ Remover `length` ao adicionar `@Lob` é um erro comum e intuitivo (parece
   processamento de cobranças recorrentes futuras (usando `NEXT_BILL_DT`/
   `FUTURE_BILL_DT`) é o próximo passo natural do produto (ver seção
   "Evoluções futuras").
+- `account.isAuthorizedFallback` é apenas **persistido** nesta versão; a
+  lógica que de fato tentaria um método de pagamento alternativo quando o
+  principal falha ainda não existe (não há, hoje, um fluxo de "falha de
+  cobrança" no serviço) - fica registrada como um próximo passo natural,
+  junto do processamento de recorrência.
+- O agendamento de cancelamento (`CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT`)
+  também só **grava a data planejada**; o job que efetivamente cancelaria o
+  produto na data agendada é outro passo futuro (ver "Próximo serviço
+  natural a construir").
 
 ## Testes
 
@@ -698,11 +799,157 @@ focados nos pontos de maior risco/complexidade:
 - `InstallmentSplitServiceTest` - rateio de centavos entre parcelas.
 - `CardExpirationUtilTest` - validação de `MM/YY` (mês inválido, cartão expirado).
 - `PurchaseValidationServiceTest` - regras de cálculo mais críticas (soma de
-  taxas, fórmula de `chargedValue`), com os repositórios simulados via Mockito.
+  taxas, fórmula de `chargedValue`), mais os campos obrigatórios acrescentados
+  em 17/09/2026 (`account.email`, `account.isAuthorizedFallback`,
+  `payment.brand`), com os repositórios simulados via Mockito.
+- `ProductServiceTest` (17/09/2026) - a regra mais nova e mais arriscada desta
+  evolução: `DISABLE_BILLING_B` (sempre derivada de `type`) e o par
+  `CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT`, condicionado ao *feature
+  toggle* `AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT` - cobre as 4 combinações
+  relevantes (ONESHOT+vigência com o toggle ligado/desligado, ONESHOT sem
+  vigência, e RECURRENCE).
+- `FeatureToggleServiceTest` (17/09/2026) - os 3 caminhos de
+  `FeatureToggleService.isEnabled`: regra ligada, regra desligada, e regra
+  **inexistente** (garante o comportamento *fail-safe* - nunca lança exceção
+  por um nome de regra digitado errado).
+- `AssetIdFormatterTest` (17/09/2026) - utilitário puro (sem dependências),
+  cobre os 4 prefixos (`ACCT_`/`PROD_`/`BILL_`/`PAY_`), as duas sobrecargas
+  de `payment` (`Long`/`String`) e o retorno `null` quando o ID técnico é
+  `null`.
+- `RequestLogServiceTest` (17/09/2026) - a regra de truncamento antes de
+  gravar em `T_LOG` (`REASON` em 500 caracteres, `INPUT`/`OUTPUT` no limite
+  configurável de `billing.log.max-payload-length`) e o tratamento de valor
+  `null` (vira string vazia, nunca `null`, já que as colunas são `NOT NULL`).
+- `GlobalExceptionHandlerTest` (17/09/2026) - os dois `@ExceptionHandler`
+  (JSON malformado e falha de Bean Validation), incluindo a busca da causa
+  raiz mais profunda da exceção, o fallback de mensagem padrão, a decisão de
+  logar (ou não) em `T_LOG` dependendo de conseguir recuperar o `protocol`, e
+  o *fallback* de serialização quando o `JsonMapper` falha.
+- `BooleanCharConverterTest` (17/09/2026) - o `AttributeConverter` usado em
+  toda coluna `*_B` do projeto: as duas direções da conversão
+  (`Boolean`↔`CHAR(1)`), `null` em ambas as direções, e o comportamento
+  "fail-safe" implícito de tratar qualquer valor de coluna diferente de
+  `"1"` como `false`.
 
 Não incluímos testes de integração com banco real neste momento (ver
 "Evoluções futuras" - Testcontainers) porque as triggers de auditoria são
 SQL nativo do MySQL e não rodam em bancos em memória como H2.
+
+### Cobertura de código (JaCoCo)
+
+`mvn test` agora também gera um relatório de cobertura via
+[JaCoCo](https://www.jacoco.org/jacoco/) (plugin `jacoco-maven-plugin`,
+adicionado em 17/09/2026): abra `target/site/jacoco/index.html` no navegador
+depois de rodar os testes para ver o percentual real, por classe e por
+linha/branch. Não existe um número de cobertura "oficial" documentado aqui
+de propósito - ele muda a cada `mvn test` e este README não é regenerado a
+cada rodada; o relatório do JaCoCo é a fonte da verdade.
+
+> **Nota sobre a versão do plugin**: usamos `jacoco-maven-plugin` **0.8.15**
+> (não a 0.8.12, versão inicialmente adicionada). O JaCoCo lê o bytecode
+> compilado usando sua própria cópia da biblioteca ASM, que precisa
+> reconhecer o "major version" do class file de cada JDK (Java 25 = 69). A
+> 0.8.12 é anterior ao lançamento do Java 25 e falha com `Unsupported class
+> file major version 69` no goal `report` (os testes chegam a passar
+> normalmente - só a geração do relatório de cobertura quebra o build). O
+> suporte oficial a Java 25 chegou na 0.8.14; a 0.8.15 é a versão estável
+> mais recente no momento e já suporta oficialmente até o Java 26. Lição
+> para o portfólio: ao fixar a versão de um plugin de build tooling (não só
+> de dependências de runtime), vale checar se ele já suporta a versão do
+> JDK do projeto - ferramentas de bytecode como JaCoCo, ASM, ByteBuddy
+> (usado pelo Mockito) e afins costumam ficar defasadas em relação a
+> lançamentos recentes do Java.
+
+**Primeira medição real (17/09/2026)**, feita a partir do `mvn test` local do
+autor (JDK 25/Windows), agregando as 47 classes do projeto: **≈41% de
+instructions / ≈39% de linhas / ≈38% de branches**. Ver a análise completa
+(por que ficou nesse patamar, e quais classes puxam a média para baixo) na
+documentação de decisões e arquitetura do projeto.
+
+#### Meta de cobertura: por que não "80% amanhã"
+
+Uma dúvida comum em quem está começando com cobertura de código: **qual é o
+número "certo"**? Não existe um padrão universal obrigatório, mas alguns
+pontos de referência amplamente citados na indústria:
+
+- O [Google Testing Blog](https://testing.googleblog.com/2020/08/code-coverage-best-practices.html)
+  (post oficial "Code Coverage Best Practices", 2020) propõe faixas
+  informais: **abaixo de 60% = não aceitável, 60% = aceitável, 75% =
+  louvável ("commendable"), 90% = exemplar**. Não é uma régua rígida - é uma
+  referência de "onde mais ou menos estar".
+- O **SonarQube/SonarCloud** (ferramenta de análise estática muito usada em
+  pipelines de CI/CD - ver tabela de frameworks abaixo) tem, por padrão, um
+  "Quality Gate" que **exige 80% de cobertura, mas só no código NOVO ou
+  ALTERADO** de um pull request - não no projeto inteiro. Essa é
+  provavelmente a origem do número "80%" que mais aparece quando se procura
+  por "boa prática de cobertura".
+- A tendência moderna (Codecov, SonarQube, e a maioria das ferramentas de CI)
+  é medir **"diff coverage"/"patch coverage"** (cobertura só do que mudou em
+  cada PR) em vez de perseguir um número fixo sobre o código legado inteiro:
+  é mais sustentável exigir "todo código NOVO vem com teste" do que tentar
+  cobrir retroativamente um projeto inteiro de uma vez.
+
+**Para este projeto**, isso se traduz em duas decisões concretas, já
+aplicadas no `pom.xml`:
+
+1. **Exclusões da métrica**: a classe de bootstrap (`BillingApplication`),
+   os DTOs de request/response (`records` sem lógica condicional própria) e
+   a classe de configuração (`BillingProperties`, populada pelo Spring) só
+   seriam exercitados de verdade por um teste de *integração* (subindo
+   contexto Spring) - não faz sentido penalizar a métrica de cobertura de
+   *unidade* por eles. Excluí-los deixa o percentual mais fiel ao código que
+   realmente tem regra de negócio para testar. Isso NÃO muda o resultado dos
+   testes - só o que entra na conta do relatório/gate.
+2. **Gate incremental** (goal `check` do JaCoCo, também na fase `test`):
+   começa em **35%** de linhas (levemente abaixo do que já temos hoje, só
+   para o gate existir sem travar o build imediatamente) e a ideia é ir
+   subindo esse piso aos poucos (ex.: 35% → 50% → 65% → 80%) conforme novos
+   lotes de teste entram - em vez de definir 80% de uma vez e travar todo
+   `mvn test` até lá. Essa é a mesma lógica do Quality Gate do SonarQube:
+   um número que sobe com o tempo, não uma meta que trava tudo hoje.
+
+**O que TEM teste hoje**: as regras de cálculo mais arriscadas
+(`RecurrenceCalculatorService`, `InstallmentSplitService`,
+`CardExpirationUtil`), a validação de negócio mais crítica
+(`PurchaseValidationService` - parcialmente, focada nas regras condicionais
+mais fáceis de errar), as duas regras mais novas de `ProductService`
+(`DISABLE_BILLING_B`/cancelamento agendado) + `FeatureToggleService`, e (a
+partir desta rodada) `AssetIdFormatter`, `RequestLogService` e
+`GlobalExceptionHandler` - escolhidos por serem baratos de testar (poucas
+dependências, lógica simples) e ainda assim relevantes (formatação de ID
+exposta na API, truncamento antes de gravar em banco, tradução de erro
+HTTP).
+
+**Atualização (mesma sessão, após confirmação real do usuário)**: com a
+1ª leva de testes acima, a cobertura subiu de ~41%/39% (instructions/lines)
+para **~48%/46%** — confirmado via `mvn test` real (45 testes, todos
+passando, `jacoco:check` aprovado). Ver a tabela completa e a análise por
+classe na documentação de decisões e arquitetura do projeto.
+
+**O que ainda NÃO tem teste dedicado** (candidatos naturais para uma próxima
+rodada, agora em ordem de prioridade CONFIRMADA pelos números reais do
+JaCoCo, não só por intuição): `AccountService`/`PaymentService`/
+`BillingService`/`PurchaseOrchestrationService` (as quatro em 0% de
+cobertura hoje - camada de orquestração/persistência, o maior bloco
+restante; pelo forte acoplamento a repositórios e transação, provavelmente
+vale mais a pena testar com Testcontainers do que mockando tudo); o
+restante de `PurchaseValidationService` (validação de documento/
+endereço/telefone, regras de desconto, validação de token, validação de
+billing cruzada com pagamento - hoje em ~55%); e os utilitários `MoneyUtil`
+(~59%) e `PurchaseLookupUtils` (~68%, faltam ramos de erro). Nenhum desses
+ficou sem teste por serem menos importantes - é só o corte que coube em
+cada rodada; o JaCoCo aponta exatamente as linhas descobertas se quiser
+fechar essa lacuna aos poucos.
+
+> **Nota sobre enums e o JaCoCo**: `CardBrand`/`DocumentType`/`AddressType`
+> aparecem em 0% mesmo sendo enums simples, sem lógica própria. Isso não é
+> uma lacuna de teste real - é uma particularidade conhecida do JaCoCo: ele
+> instrumenta os métodos sintéticos `values()`/`valueOf()` que o compilador
+> gera automaticamente para TODO enum Java, e sem um teste que chame esses
+> métodos especificamente, eles aparecem como "não cobertos". Os enums
+> `PaymentMethod`/`ProductType`/`RecurrenceFrequency`/`ResultStatus` já
+> aparecem cobertos só porque são construídos indiretamente pelos testes de
+> service existentes - não porque alguém testou `values()` de propósito.
 
 ## Evoluções futuras / outros frameworks para estudo
 
@@ -720,6 +967,7 @@ de outros frameworks para estudos futuros"):
 | Observabilidade | Actuator básico | **Micrometer + Prometheus + Grafana** para métricas; **OpenTelemetry** para tracing distribuído |
 | Documentação da API | Nenhuma ainda | **springdoc-openapi** para gerar Swagger UI automaticamente a partir dos DTOs/controllers |
 | Idempotência/cache | Consulta direta ao `T_LOG` | **Redis** como cache de idempotência (mais rápido que consultar o banco relacional a cada requisição) |
+| Feature flags | Tabela própria (`T_CONFIG_FEATURE_TOGGLE`) + `FeatureToggleService` | **Togglz**, **FF4J**, **Unleash**, **LaunchDarkly** ou **Split** (soluções dedicadas, com painel de administração, *targeting* por usuário/percentual, e SDKs prontos); cache da leitura com Spring `@Cacheable` + **Caffeine** (evita ir ao banco em toda requisição); ou centralizar a configuração em **Spring Cloud Config**/**Consul**, com atualização em runtime via *refresh* |
 
 ### Próximo serviço natural a construir
 

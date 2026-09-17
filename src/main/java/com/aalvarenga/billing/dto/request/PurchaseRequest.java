@@ -27,27 +27,32 @@ import java.util.List;
  * HTTP 4XX diferentes (400/404/409/412) - algo que a Bean Validation sozinha
  * não expressa bem.
  *
- * @param channel         canal da venda (livre, obrigatório)
- * @param transactionDate data/hora da transação, em epoch milissegundos,
- *                        representada como String (mesmo formato usado nos
- *                        exemplos de payload do enunciado)
- * @param protocol        identificador único da requisição, usado para
- *                        checagem de idempotência (ver RequestLogService)
- * @param account         estrutura da conta do assinante (o enunciado modela
- *                        como lista, mas esta implementação assume 1 único
- *                        elemento - ver README/ANALISE.md)
- * @param product         lista de produtos comprados (1 ou mais)
- * @param payment         lista de métodos de pagamento (opcional; obrigatória
- *                        apenas quando há cobrança ou produto RECURRENCE)
- * @param billing         lista de faturas a serem geradas (opcional)
+ * @param channel       canal da venda (livre, obrigatório)
+ * @param transactionDt data/hora da transação, em epoch milissegundos,
+ *                      representada como String (mesmo formato usado nos
+ *                      exemplos de payload do enunciado). Renomeado de
+ *                      {@code transactionDate} para {@code transactionDt}
+ *                      em 17/09/2026 para seguir o mesmo padrão de sufixo
+ *                      {@code Dt} usado em todos os outros campos de data
+ *                      da entrada/saída deste serviço - ver README, seção
+ *                      "Evoluções pedidas".
+ * @param protocol      identificador único da requisição, usado para
+ *                      checagem de idempotência (ver RequestLogService)
+ * @param account       estrutura da conta do assinante (o enunciado modela
+ *                      como lista, mas esta implementação assume 1 único
+ *                      elemento - ver README/ANALISE.md)
+ * @param product       lista de produtos comprados (1 ou mais)
+ * @param payment       lista de métodos de pagamento (opcional; obrigatória
+ *                      apenas quando há cobrança ou produto RECURRENCE)
+ * @param billing       lista de faturas a serem geradas (opcional)
  */
 public record PurchaseRequest(
 
         @NotBlank(message = "channel is required")
         String channel,
 
-        @NotBlank(message = "transactionDate is required")
-        String transactionDate,
+        @NotBlank(message = "transactionDt is required")
+        String transactionDt,
 
         @NotBlank(message = "protocol is required")
         String protocol,

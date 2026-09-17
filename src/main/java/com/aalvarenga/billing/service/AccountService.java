@@ -47,6 +47,8 @@ public class AccountService {
             AccountEntity newAccount = AccountEntity.builder()
                     .name(accountRequest.name())
                     .externalId(accountRequest.externalId())
+                    .email(accountRequest.email())
+                    .authorizedFallback(accountRequest.isAuthorizedFallback())
                     .status(DomainStatus.ACTIVE)
                     .build();
             return accountRepository.save(newAccount);
@@ -59,6 +61,12 @@ public class AccountService {
         if (accountRequest.externalId() != null) {
             existingAccount.setExternalId(accountRequest.externalId());
         }
+        // email/isAuthorizedFallback são obrigatórios em TODA requisição (ver
+        // PurchaseValidationService.validateAccount), então - diferente de
+        // name/externalId acima - não há necessidade de checar null aqui:
+        // sempre vêm preenchidos e sempre sobrescrevem o valor anterior.
+        existingAccount.setEmail(accountRequest.email());
+        existingAccount.setAuthorizedFallback(accountRequest.isAuthorizedFallback());
         return accountRepository.save(existingAccount);
     }
 

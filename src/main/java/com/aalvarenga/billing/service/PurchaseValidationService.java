@@ -71,7 +71,7 @@ public class PurchaseValidationService {
      * pela persistência (ver {@link ValidatedPurchaseContext}).
      */
     public ValidatedPurchaseContext validate(PurchaseRequest request) {
-        long transactionDateEpochMillis = validateTransactionDate(request.transactionDate());
+        long transactionDateEpochMillis = validateTransactionDt(request.transactionDt());
         validateProtocol(request.protocol());
 
         if (request.account().size() != 1) {
@@ -92,19 +92,20 @@ public class PurchaseValidationService {
     }
 
     // ------------------------------------------------------------------
-    // Dados gerais (channel / transactionDate / protocol)
+    // Dados gerais (channel / transactionDt / protocol)
     // ------------------------------------------------------------------
 
-    private long validateTransactionDate(String transactionDate) {
+    private long validateTransactionDt(String transactionDt) {
         long epochMillis;
         try {
-            epochMillis = Long.parseLong(transactionDate);
+            epochMillis = Long.parseLong(transactionDt);
         } catch (NumberFormatException ex) {
-            throw BusinessException.badRequest("transactionDate must be a valid epoch milliseconds value");
+            throw BusinessException.badRequest("transactionDt must be a valid epoch milliseconds value");
         }
         if (epochMillis > System.currentTimeMillis()) {
-            // Regra explícita do enunciado para o campo "transactionDate"
-            throw BusinessException.badRequest("transactionDate cannot be in the future");
+            // Regra explícita do enunciado para o campo (antigo "transactionDate",
+            // renomeado para "transactionDt" - ver javadoc de PurchaseRequest)
+            throw BusinessException.badRequest("transactionDt cannot be in the future");
         }
         return epochMillis;
     }
@@ -172,6 +173,15 @@ public class PurchaseValidationService {
         }
         if (accountRequest.phone() != null) {
             validatePhones(accountRequest.phone());
+        }
+
+        // Campos acrescentados em 17/09/2026 (ver README, seção "Evoluções
+        // pedidas"): diferente de name/externalId, estes DOIS são obrigatórios
+        // em TODA requisição, independente de account.id ter vindo preenchido
+        // ou não - por isso ficam fora do bloco "isNewAccount" acima.
+        requireNotBlank(accountRequest.email(), "account.email");
+        if (accountRequest.isAuthorizedFallback() == null) {
+            throw BusinessException.badRequest("account.isAuthorizedFallback is required");
         }
 
         return existingAccount;
@@ -307,6 +317,15 @@ public class PurchaseValidationService {
                     throw BusinessException.badRequest("payment.isMultiple is required for CREDIT/DEBIT methods");
                 }
                 validateExpiration(payment.expiration());
+                // Campo acrescentado em 17/09/2026 (ver README, seção "Evoluções
+                // pedidas"): obrigatório apenas para CREDIT/DEBIT. Um valor fora do
+                // enum CardBrand (ex: "brand": "DINERS") já é rejeitado pelo Jackson
+                // antes de chegar aqui - ver GlobalExceptionHandler.handleMalformedJson
+                // - exatamente o mesmo tratamento já aplicado a payment.method e
+                // product.type. Aqui só resta checar a AUSÊNCIA do campo.
+                if (payment.brand() == null) {
+                    throw BusinessException.badRequest("payment.brand is required for CREDIT/DEBIT methods");
+                }
             }
             if (payment.isDefault() == null) {
                 throw BusinessException.badRequest("payment.isDefault is required");

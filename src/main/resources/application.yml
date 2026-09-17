@@ -29,7 +29,7 @@ spring:
       ddl-auto: validate
       naming:
         # Por padrão, o Spring Boot usa o "SpringPhysicalNamingStrategy", que
-        # converte TO.DO nome de tabela/coluna para snake_case minúsculo -
+        # converte TODO nome de tabela/coluna para snake_case minúsculo -
         # inclusive quando já informamos um nome explícito em @Table/@Column,
         # como fazemos aqui (@Table(name = "T_ACCOUNT")). Resultado: o
         # Hibernate ficava procurando a tabela "t_account" (minúscula) para

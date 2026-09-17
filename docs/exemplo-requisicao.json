@@ -1,12 +1,14 @@
 {
   "channel": "WEB",
-  "transactionDate": "1789047480000",
+  "transactionDt": "1789047480000",
   "protocol": "WEB-EXAMPLE-0001",
   "account": [
     {
       "id": null,
       "name": "Angelo Alvarenga",
       "externalId": "XXXX1234",
+      "email": "angelo.alvarenga@example.com",
+      "isAuthorizedFallback": true,
       "document": [
         {
           "type": "CPF",
@@ -70,7 +72,8 @@
       "installments": 1,
       "token": [
         { "name": "ACCESS_TOKEN", "id": "XZA1BVERYJ-EXAMPLE", "gateway": "INTERNAL", "expirationDate": null }
-      ]
+      ],
+      "brand": "VISA"
     },
     {
       "method": "PIX",
@@ -82,7 +85,8 @@
       "installments": 1,
       "token": [
         { "name": "ACCESS_TOKEN", "id": "XZA1BVERYA-EXAMPLE", "gateway": "INTERNAL", "expirationDate": null }
-      ]
+      ],
+      "brand": null
     }
   ],
   "billing": [

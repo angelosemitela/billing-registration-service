@@ -1,0 +1,174 @@
+package com.aalvarenga.billing.exception;
+
+import com.aalvarenga.billing.dto.request.PurchaseRequest;
+import com.aalvarenga.billing.dto.response.PurchaseResponse;
+import com.aalvarenga.billing.enums.ResultStatus;
+import com.aalvarenga.billing.service.RequestLogService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Cobre {@link GlobalExceptionHandler} - o {@code @RestControllerAdvice} que
+ * traduz falhas ANTES do controller conseguir chamar o service (JSON
+ * malformado, Bean Validation) para o formato de resposta padronizado do
+ * enunciado.
+ *
+ * <p>{@link HttpMessageNotReadableException} e
+ * {@link MethodArgumentNotValidException} não têm construtores simples de
+ * usar em teste (exigem objetos internos do Spring MVC como
+ * {@code HttpInputMessage}/{@code MethodParameter}), então mockamos as
+ * próprias exceções em vez de instanciá-las de verdade - o que basta aqui,
+ * já que só usamos {@code getMessage()}/{@code getCause()}/
+ * {@code getBindingResult()} delas.
+ */
+@ExtendWith(MockitoExtension.class)
+class GlobalExceptionHandlerTest {
+
+    @Mock
+    private RequestLogService requestLogService;
+    @Mock
+    private JsonMapper objectMapper;
+
+    private GlobalExceptionHandler handler;
+
+    @BeforeEach
+    void setUp() {
+        handler = new GlobalExceptionHandler(requestLogService, objectMapper);
+    }
+
+    @Test
+    void handleMalformedJson_returnsBadRequestWithRootMessage() {
+        HttpMessageNotReadableException ex = mock(HttpMessageNotReadableException.class);
+        when(ex.getMessage()).thenReturn("Unexpected token");
+        when(ex.getCause()).thenReturn(null);
+
+        ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().result()).isEqualTo(ResultStatus.ERROR);
+        assertThat(response.getBody().code()).isEqualTo("400");
+        assertThat(response.getBody().reason()).contains("Unexpected token");
+        // Nenhum protocolo disponível nesse ponto (o Jackson nem conseguiu
+        // montar o PurchaseRequest) - ver javadoc do método original.
+        assertThat(response.getBody().protocol()).isNull();
+    }
+
+    @Test
+    void handleMalformedJson_walksCauseChainToFindRootMessage() {
+        // A exceção "de fora" (ex) não tem mensagem própria útil - a causa
+        // raiz real (a mais profunda da cadeia) é o que importa.
+        RuntimeException rootCause = new RuntimeException("actual root cause message");
+        HttpMessageNotReadableException ex = mock(HttpMessageNotReadableException.class);
+        when(ex.getCause()).thenReturn(rootCause);
+
+        ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
+
+        assertThat(response.getBody().reason()).contains("actual root cause message");
+    }
+
+    @Test
+    void handleMalformedJson_fallsBackToDefaultMessageWhenRootMessageIsNull() {
+        HttpMessageNotReadableException ex = mock(HttpMessageNotReadableException.class);
+        when(ex.getMessage()).thenReturn(null);
+        when(ex.getCause()).thenReturn(null);
+
+        ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
+
+        assertThat(response.getBody().reason()).contains("invalid payload");
+    }
+
+    @Test
+    void handleBeanValidation_withRecoverableProtocol_logsTheAttempt() {
+        PurchaseRequest purchaseRequest = new PurchaseRequest(
+                "WEB", "123", "PROTO-1", List.of(), List.of(), List.of(), List.of());
+
+        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
+        BindingResult bindingResult = mock(BindingResult.class);
+        FieldError fieldError = new FieldError("purchaseRequest", "channel", "channel is required");
+        when(ex.getBindingResult()).thenReturn(bindingResult);
+        when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
+        when(bindingResult.getTarget()).thenReturn(purchaseRequest);
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
+
+        ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().reason()).isEqualTo("channel: channel is required");
+        assertThat(response.getBody().protocol()).isEqualTo("PROTO-1");
+        // Diferente do JSON malformado, aqui o objeto FOI construído com
+        // sucesso, então a tentativa deve ser logada em T_LOG (ver javadoc).
+        verify(requestLogService).log("PROTO-1", "ERROR", "400", "channel: channel is required",
+                "{\"json\":true}", "{\"json\":true}");
+    }
+
+    @Test
+    void handleBeanValidation_withoutRecoverableTarget_doesNotLog() {
+        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
+        BindingResult bindingResult = mock(BindingResult.class);
+        FieldError fieldError = new FieldError("purchaseRequest", "protocol", "protocol is required");
+        when(ex.getBindingResult()).thenReturn(bindingResult);
+        when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
+        // Target não é um PurchaseRequest (ou é null) - não há protocolo
+        // para recuperar, então não devemos tentar logar.
+        when(bindingResult.getTarget()).thenReturn(null);
+
+        ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
+
+        assertThat(response.getBody().protocol()).isNull();
+        assertThat(response.getBody().reason()).isEqualTo("protocol: protocol is required");
+        verify(requestLogService, never()).log(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void handleBeanValidation_usesDefaultReasonWhenNoFieldErrors() {
+        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
+        BindingResult bindingResult = mock(BindingResult.class);
+        when(ex.getBindingResult()).thenReturn(bindingResult);
+        when(bindingResult.getFieldErrors()).thenReturn(List.of());
+        when(bindingResult.getTarget()).thenReturn(null);
+
+        ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
+
+        assertThat(response.getBody().reason()).isEqualTo("Invalid request body");
+    }
+
+    @Test
+    void handleBeanValidation_whenSerializationFails_fallsBackToErrorPlaceholder() {
+        PurchaseRequest purchaseRequest = new PurchaseRequest(
+                "WEB", "123", "PROTO-2", List.of(), List.of(), List.of(), List.of());
+
+        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
+        BindingResult bindingResult = mock(BindingResult.class);
+        FieldError fieldError = new FieldError("purchaseRequest", "channel", "channel is required");
+        when(ex.getBindingResult()).thenReturn(bindingResult);
+        when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
+        when(bindingResult.getTarget()).thenReturn(purchaseRequest);
+        when(objectMapper.writeValueAsString(any())).thenThrow(new RuntimeException("boom"));
+
+        handler.handleBeanValidation(ex);
+
+        verify(requestLogService).log(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.contains("<unable to serialize: boom>"),
+                org.mockito.ArgumentMatchers.contains("<unable to serialize: boom>"));
+    }
+}

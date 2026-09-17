@@ -1,5 +1,6 @@
 package com.aalvarenga.billing.dto.request;
 
+import com.aalvarenga.billing.enums.CardBrand;
 import com.aalvarenga.billing.enums.PaymentMethod;
 
 import java.util.List;
@@ -15,6 +16,9 @@ import java.util.List;
  * @param isDefault    se é o método padrão da conta (exatamente 1 deve ser true)
  * @param installments número de parcelas (1 para a maioria dos métodos; 1-12 para CREDIT/WALLET)
  * @param token        tokens de tokenização gerados para este método
+ * @param brand        bandeira do cartão - VISA, MASTERCARD, AMEX ou ELO
+ *                     (obrigatório para CREDIT/DEBIT; acrescentado em
+ *                     17/09/2026, ver README, seção "Evoluções pedidas")
  */
 public record PaymentRequest(
         PaymentMethod method,
@@ -24,6 +28,7 @@ public record PaymentRequest(
         Boolean isMultiple,
         Boolean isDefault,
         Integer installments,
-        List<TokenRequest> token
+        List<TokenRequest> token,
+        CardBrand brand
 ) {
 }

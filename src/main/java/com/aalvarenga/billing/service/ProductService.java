@@ -28,6 +28,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final DiscountRepository discountRepository;
     private final RecurrenceCalculatorService recurrenceCalculatorService;
+    private final FeatureToggleService featureToggleService;
 
     /**
      * Persiste todos os produtos da requisição.
@@ -45,6 +46,12 @@ public class ProductService {
                                                         PaymentEntity defaultPayment,
                                                         Long accountId) {
         Map<String, ProductEntity> persisted = new LinkedHashMap<>();
+        // Consultado 1 única vez por requisição (não a cada produto do loop):
+        // é a mesma regra para todos os produtos desta compra, então não há
+        // motivo para repetir a consulta ao banco a cada iteração.
+        boolean autoScheduleCancelEnabled = featureToggleService.isEnabled(
+                FeatureToggleRules.AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT);
+
         for (ProductRequest request : products) {
             boolean isRecurrence = request.type() == ProductType.RECURRENCE;
             boolean isTrial = Boolean.TRUE.equals(request.isTrial());
@@ -68,6 +75,24 @@ public class ProductService {
                     ? recurrenceCalculatorService.advanceCycles(nextBillDt, 1, effectiveFrequency)
                     : null;
 
+            // "Todo assinante com type=ONESHOT deverá preencher com 1(true).
+            // Para todos os outros casos deverá preencher com 0" - sempre
+            // calculado, nunca vem da entrada (ver README, seção "Evoluções pedidas").
+            boolean disableBilling = request.type() == ProductType.ONESHOT;
+
+            // Regra condicionada ao feature toggle AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT
+            // (ver FeatureToggleService/FeatureToggleRules): com o toggle ligado, um
+            // ONESHOT com vigência (isExpiriationService=true) agenda seu próprio
+            // cancelamento automático para a data em que essa vigência termina
+            // (cycleEndDt, calculado acima). Em qualquer outro caso - toggle
+            // desligado, produto RECURRENCE, ou ONESHOT sem vigência - os dois
+            // campos ficam null.
+            boolean isOneShotWithExpiration = request.type() == ProductType.ONESHOT && expires;
+            Long cancellationReqDt = (autoScheduleCancelEnabled && isOneShotWithExpiration)
+                    ? transactionDateEpochMillis : null;
+            Long cancellationSchDt = (autoScheduleCancelEnabled && isOneShotWithExpiration)
+                    ? cycleEndDt : null;
+
             ProductEntity entity = ProductEntity.builder()
                     .accountId(accountId)
                     .productId(request.codeId())
@@ -87,6 +112,9 @@ public class ProductService {
                     .channel(channel)
                     .transactionDt(transactionDateEpochMillis)
                     .status(expires ? DomainStatus.PRODUCT_ACTIVE : DomainStatus.PRODUCT_SOLD_WITHOUT_SERVICE)
+                    .disableBilling(disableBilling)
+                    .cancellationReqDt(cancellationReqDt)
+                    .cancellationSchDt(cancellationSchDt)
                     .build();
 
             entity = productRepository.save(entity);

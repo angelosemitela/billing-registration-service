@@ -95,4 +95,31 @@ public class ProductEntity extends BaseAuditableEntity {
 
     @Column(name = "STATUS", nullable = false)
     private Integer status;
+
+    // Campos acrescentados em V9__add_product_disable_billing_and_cancellation.sql
+    // (17/09/2026) - ver README, seção "Evoluções pedidas".
+
+    /** {@code true} quando {@code type = ONESHOT}; {@code false} em todos os demais casos. Sempre calculado pela aplicação, nunca vem da entrada. */
+    @Convert(converter = BooleanCharConverter.class)
+    @Column(name = "DISABLE_BILLING_B", nullable = false, length = 1)
+    private Boolean disableBilling;
+
+    /**
+     * Data em que o cancelamento automático foi "solicitado" (na prática, o
+     * próprio {@code transactionDt} da compra) - só preenchida quando a regra
+     * {@code AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT} está ativa (ver
+     * {@code FeatureToggleService}) E o produto é {@code ONESHOT} com
+     * {@code isExpiriationService = true}. {@code null} em todos os outros
+     * casos, inclusive quando a regra está desativada.
+     */
+    @Column(name = "CANCELLATION_REQ_DT")
+    private Long cancellationReqDt;
+
+    /**
+     * Data em que o cancelamento automático está agendado para de fato
+     * acontecer (igual a {@link #cycleEndDt} no momento da criação) - mesma
+     * condição de preenchimento de {@link #cancellationReqDt}.
+     */
+    @Column(name = "CANCELLATION_SCH_DT")
+    private Long cancellationSchDt;
 }

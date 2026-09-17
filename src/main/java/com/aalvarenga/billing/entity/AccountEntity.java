@@ -1,6 +1,8 @@
 package com.aalvarenga.billing.entity;
 
+import com.aalvarenga.billing.entity.converter.BooleanCharConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -38,4 +40,17 @@ public class AccountEntity extends BaseAuditableEntity {
     /** FK lógica para T_DOMAIN_ACCOUNT_STATUS.STATUS_ID (1 = Ativo, 2 = Cancelado). */
     @Column(name = "STATUS", nullable = false)
     private Integer status;
+
+    // Campos acrescentados em V8__add_account_email_fallback_and_payment_brand.sql
+    // (17/09/2026) - diferente de NAME/EXTERNAL_ID, são obrigatórios em TODA
+    // requisição (ver PurchaseValidationService.validateAccount), não só na
+    // criação de conta nova.
+
+    @Column(name = "EMAIL", nullable = false, length = 200)
+    private String email;
+
+    /** Se o assinante autoriza cobrança em método alternativo quando o principal falha (ex: sem sucesso no CREDIT, tenta no DEBIT). */
+    @Convert(converter = BooleanCharConverter.class)
+    @Column(name = "AUTHORIZED_FALLBACK_B", nullable = false, length = 1)
+    private Boolean authorizedFallback;
 }
