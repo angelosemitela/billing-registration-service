@@ -21,6 +21,7 @@ design tomadas e as inconsistências encontradas na especificação original.
 - [Como rodar o projeto](#como-rodar-o-projeto)
 - [Arquitetura](#arquitetura)
 - [Endpoint da API](#endpoint-da-api)
+- [Consulta de dados (`POST /api/v1/purchases/query`)](#consulta-de-dados-post-apiv1purchasesquery)
 - [Banco de dados](#banco-de-dados)
 - [Inconsistências encontradas na especificação e decisões tomadas](#inconsistências-encontradas-na-especificação-e-decisões-tomadas)
 - [Limitações conhecidas](#limitações-conhecidas)
@@ -205,6 +206,111 @@ Content-Type: application/json
 Corpo de entrada e saída seguem exatamente o contrato descrito no documento
 original do projeto (`projeto.txt`), com os ajustes de nomenclatura
 documentados na seção de inconsistências abaixo.
+
+Além deste, existe um segundo endpoint de CONSULTA (leitura) do que já foi
+persistido - ver seção "Consulta de dados" logo abaixo.
+
+## Consulta de dados (`POST /api/v1/purchases/query`)
+
+```
+POST /api/v1/purchases/query
+Content-Type: application/json
+```
+
+Endpoint de leitura, adicionado em 18/09/2026 a partir de um segundo
+documento de especificação (`docs/consulta-dados.txt`), devolvendo conta,
+produtos, pagamentos e faturas já persistidos - por `externalId` da conta
+(devolve tudo) ou por `productId` (devolve só aquele produto e o que está
+diretamente ligado a ele).
+
+**Por que `POST` para uma leitura?** A spec HTTP desaconselha corpo em
+`GET` (nem todo cliente/proxy repassa), e o filtro de entrada tem 6 campos
+opcionais, incluindo booleans com valor padrão `true` - GET com query
+params funcionaria, mas ficaria bem menos legível que JSON. É o mesmo
+padrão usado por APIs de busca complexa no mercado (o endpoint `_search`
+do Elasticsearch/OpenSearch também é `POST`, apesar de ser leitura).
+
+**Decisões tomadas com o usuário** (pergunta de múltipla escolha, mesmo
+padrão usado nas decisões originais do projeto):
+
+1. **Desconto "vigente" na lista `products[].discount`**: o anexo original
+   contradizia a si mesmo (uma regra dizia `endDt` MENOR que o sysdate,
+   outra, para `nextBillValue`, dizia `endDt` MAIOR que uma data de
+   referência). Decisão: "vigente" = `status = 1` E `endDt` no FUTURO em
+   relação ao instante atual - combina com o sentido usual de "ativo" e
+   com a regra de `nextBillValue`.
+2. **`cardNumber` no retorno de pagamento**: o anexo não previa máscara
+   para este campo (só para o documento). Decisão: mascarar, mas mantendo
+   os 4 últimos dígitos visíveis (diferente do documento, que mostra só os
+   2 últimos) - regra especial: se o valor tiver 4 posições ou menos, fica
+   mascarado por inteiro. Ver `MaskingUtil`.
+3. **Verbo/caminho do endpoint**: `POST /api/v1/purchases/query` (ver
+   racional acima).
+4. **Formato dos IDs dentro de `bill[]`**: `productId`/`billId` são
+   formatados com prefixo (`PROD_x`/`BILL_x`), por consistência com o
+   resto da API - o anexo original mostrava esses dois campos sem prefixo
+   no exemplo, mas o próprio comentário do `billId` já dizia que deveria
+   ser formatado assim (mais um exemplo desatualizado, como outros já
+   documentados neste README).
+
+**Outras decisões, tomadas sem bloquear no usuário** (por dedução direta a
+partir do schema já existente ou por não haver ambiguidade real - ver doc
+de decisões do projeto para o detalhamento completo de cada uma):
+
+- **`splitValue` da fatura**: o anexo descreve a fórmula como
+  `productValue / installments`, mas o próprio exemplo numérico do anexo só
+  fecha usando `chargedValue / installments` (mais um copy-paste
+  inconsistente) - implementado com `chargedValue`, por bater com o
+  exemplo E fazer mais sentido de negócio ("quanto o cliente paga por
+  parcela" depende do valor cobrado, não do preço bruto do produto antes de
+  desconto/imposto).
+- **Formato aceito para o `productId` de ENTRADA** (filtro da consulta):
+  aceita tanto o formato já devolvido pela própria API (`"PROD_2"` - o
+  mesmo valor que um consumidor já recebeu antes) quanto o ID técnico puro
+  (`"2"`), por robustez.
+- **Prioridade quando `externalId` E `productId` são informados juntos**: o
+  anexo trata os dois campos como alternativas mutuamente exclusivas e
+  nunca diz o que fazer se ambos vierem preenchidos. `productId` tem
+  prioridade, por ser o identificador mais RESTRITIVO (escopo de um único
+  produto) - `externalId` é o nível mais geral (toda a conta), então usá-lo
+  devolveria mais dados do que o chamador provavelmente queria. **Ajustado
+  em 18/09/2026**: a primeira versão fazia o oposto (`externalId`
+  prioritário, por ser "o identificador de nível mais alto"), até o usuário
+  observar em teste manual que o resultado mais geral não era o esperado
+  quando os dois IDs eram enviados juntos.
+- **Pagamento ao consultar por `productId`**: o schema atual não tem uma
+  FK direta de pagamento para produto - o único vínculo é
+  `T_PRODUCT.DEFAULT_PAYMENT_ID`. Por isso, "pagamento associado ao
+  produto" é implementado como o pagamento padrão do produto (só ele, se
+  existir e estiver ativo).
+- **`GlobalExceptionHandler` para JSON malformado**: como este handler é
+  GLOBAL (cobre os dois endpoints), ele agora decide, pela URI da
+  requisição, se devolve o corpo de erro no formato de
+  `PurchaseResponse` (compra) ou `QueryResponse` (consulta) - sem essa
+  correção, um JSON malformado na consulta voltaria com os nomes de campo
+  errados (`product`/`billing` em vez de `products`/`bill`, mais um
+  `protocol` que não existe neste contrato).
+- **Log de auditoria**: a consulta também grava em `T_LOG`, reaproveitando
+  `RequestLogService` (mesma tabela/serviço da criação de compra) - como
+  não existe um "protocol" de verdade neste endpoint, é sintetizada uma
+  chave (`"QUERY externalId=... productId=..."`) só para fins de
+  rastreio/auditoria.
+- **Tabelas de domínio de status**: `T_DOMAIN_ACCOUNT_STATUS`/
+  `_PRODUCT_STATUS`/`_DISCOUNT_STATUS`/`_PAYMENT_STATUS`/`_BILL_STATUS`/
+  `_BILL_TYPE` já existiam desde a V1/V4 (usadas até aqui só para o
+  `BACKEND_VALUE`, nunca mapeadas para entidade JPA porque nada ainda
+  precisava LER esse valor de volta). A consulta foi a primeira feature a
+  precisar disso - nenhuma migration nova foi necessária, só as 6 entidades/
+  repositórios novos (`DomainAccountStatusEntity` etc.) e um
+  `DomainStatusLookupService` que busca em LOTE (evita N+1 quando a
+  resposta tem várias linhas).
+
+**Não coberto por teste automatizado ainda** (pendência registrada no doc
+de decisões do projeto): rodar de ponta a ponta contra um MySQL real -
+assim como o resto do projeto, a suíte desta feature é 100% testes
+unitários com Mockito (`PurchaseQueryValidationServiceTest`,
+`PurchaseQueryServiceTest`, `MaskingUtilTest`), sem nenhum teste de
+integração com banco.
 
 ## Banco de dados
 

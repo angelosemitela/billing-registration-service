@@ -57,3 +57,25 @@ Altere, no JSON de exemplo, o `taxValue` da primeira fatura de `2` para `3`
   "billing": null
 }
 ```
+
+## Consulta de dados (`POST /api/v1/purchases/query`)
+
+`consulta-dados.txt` é o documento de especificação original desta
+segunda feature (contrato de entrada/saída, regras de negócio) - ver
+README principal, seção "Consulta de dados", para as decisões tomadas
+diante das inconsistências encontradas nele.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/purchases/query \
+  -H "Content-Type: application/json" \
+  -d '{"externalId": "XXXX1234"}'
+```
+
+Ou, para consultar por produto (aceita tanto o ID formatado devolvido pela
+API quanto o técnico puro):
+
+```bash
+curl -X POST http://localhost:8080/api/v1/purchases/query \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "PROD_1", "returnBillData": true, "maxBillReturn": 5}'
+```

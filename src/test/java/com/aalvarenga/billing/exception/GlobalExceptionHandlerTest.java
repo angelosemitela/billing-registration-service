@@ -2,8 +2,10 @@ package com.aalvarenga.billing.exception;
 
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
+import com.aalvarenga.billing.dto.response.QueryResponse;
 import com.aalvarenga.billing.enums.ResultStatus;
 import com.aalvarenga.billing.service.RequestLogService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +23,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -47,12 +50,17 @@ class GlobalExceptionHandlerTest {
     private RequestLogService requestLogService;
     @Mock
     private JsonMapper objectMapper;
+    @Mock
+    private HttpServletRequest httpServletRequest;
 
     private GlobalExceptionHandler handler;
 
     @BeforeEach
     void setUp() {
         handler = new GlobalExceptionHandler(requestLogService, objectMapper);
+        // Padrão: URI de "/api/v1/purchases" (criação de compra) - os testes
+        // que exercitam especificamente a consulta sobrescrevem este stub.
+        lenient().when(httpServletRequest.getRequestURI()).thenReturn("/api/v1/purchases");
     }
 
     @Test
@@ -61,8 +69,8 @@ class GlobalExceptionHandlerTest {
         when(ex.getMessage()).thenReturn("Unexpected token");
         when(ex.getCause()).thenReturn(null);
 
-        ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
-        PurchaseResponse body = response.getBody();
+        ResponseEntity<Object> response = handler.handleMalformedJson(ex, httpServletRequest);
+        PurchaseResponse body = (PurchaseResponse) response.getBody();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(body).isNotNull();
@@ -82,8 +90,8 @@ class GlobalExceptionHandlerTest {
         HttpMessageNotReadableException ex = mock(HttpMessageNotReadableException.class);
         when(ex.getCause()).thenReturn(rootCause);
 
-        ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
-        PurchaseResponse body = response.getBody();
+        ResponseEntity<Object> response = handler.handleMalformedJson(ex, httpServletRequest);
+        PurchaseResponse body = (PurchaseResponse) response.getBody();
 
         assertThat(body).isNotNull();
         assertThat(body.reason()).contains("actual root cause message");
@@ -95,11 +103,32 @@ class GlobalExceptionHandlerTest {
         when(ex.getMessage()).thenReturn(null);
         when(ex.getCause()).thenReturn(null);
 
-        ResponseEntity<PurchaseResponse> response = handler.handleMalformedJson(ex);
-        PurchaseResponse body = response.getBody();
+        ResponseEntity<Object> response = handler.handleMalformedJson(ex, httpServletRequest);
+        PurchaseResponse body = (PurchaseResponse) response.getBody();
 
         assertThat(body).isNotNull();
         assertThat(body.reason()).contains("invalid payload");
+    }
+
+    @Test
+    void handleMalformedJson_onQueryEndpoint_returnsQueryResponseShapeInstead() {
+        // Mesma exceção, mas a URI é a da consulta de dados - o corpo do
+        // erro precisa vir no formato de QueryResponse (sem "protocol",
+        // com "products"/"bill" em vez de "product"/"billing"), não no de
+        // PurchaseResponse - ver javadoc de handleMalformedJson.
+        when(httpServletRequest.getRequestURI()).thenReturn("/api/v1/purchases/query");
+        HttpMessageNotReadableException ex = mock(HttpMessageNotReadableException.class);
+        when(ex.getMessage()).thenReturn("Unexpected token");
+        when(ex.getCause()).thenReturn(null);
+
+        ResponseEntity<Object> response = handler.handleMalformedJson(ex, httpServletRequest);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isInstanceOf(QueryResponse.class);
+        QueryResponse body = (QueryResponse) response.getBody();
+        assertThat(body.result()).isEqualTo(ResultStatus.ERROR);
+        assertThat(body.reason()).contains("Unexpected token");
+        assertThat(body.account()).isNull();
     }
 
     @Test

@@ -51,4 +51,23 @@ public class InstallmentSplitService {
         }
         return installments;
     }
+
+    /**
+     * Valor de UMA parcela usando divisão INTEIRA simples (sem sobra),
+     * usado pela consulta de dados ({@code PurchaseQueryService}) para o
+     * campo {@code bill[].splitValue} - regra explícita do anexo do
+     * usuário: "utilizar o valor 'Inteiro' da divisão com duas casas
+     * decimais". Diferente de {@link #split}, aqui NÃO tem "primeira
+     * parcela absorve o resto": é só {@code totalValue / installmentCount},
+     * truncado (não arredondado) em centavos - por isso é um método
+     * separado, e não apenas "pegar o primeiro elemento de split(...)".
+     */
+    public BigDecimal baseInstallmentValue(BigDecimal totalValue, int installmentCount) {
+        if (installmentCount < 1) {
+            throw new IllegalArgumentException("installmentCount must be >= 1");
+        }
+        long totalCents = totalValue.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+        long baseCents = totalCents / installmentCount;
+        return BigDecimal.valueOf(baseCents, 2);
+    }
 }

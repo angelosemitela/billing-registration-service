@@ -2,7 +2,9 @@ package com.aalvarenga.billing.exception;
 
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
+import com.aalvarenga.billing.dto.response.QueryResponse;
 import com.aalvarenga.billing.service.RequestLogService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -41,15 +43,37 @@ public class GlobalExceptionHandler {
     /**
      * JSON malformado ou com um valor fora do enum esperado (ex:
      * {@code "type": "INVALID"}). Nesse ponto o Jackson nem conseguiu
-     * construir o objeto {@link PurchaseRequest}, então não temos como
-     * recuperar o "protocol" da requisição para gravar em T_LOG - essa é
-     * uma limitação documentada em README/ANALISE.md.
+     * construir o objeto de entrada, então não temos como recuperar o
+     * "protocol" da requisição para gravar em T_LOG - essa é uma limitação
+     * documentada em README/ANALISE.md.
+     *
+     * <p><b>Por que {@code ResponseEntity<Object>} e não um tipo fixo</b>:
+     * este {@code @RestControllerAdvice} é GLOBAL - o Spring despacha
+     * {@link HttpMessageNotReadableException} para cá não importa qual
+     * controller/endpoint a lançou, então um único método precisa saber
+     * responder tanto {@code POST /api/v1/purchases} (contrato
+     * {@link PurchaseResponse}, com {@code protocol}) quanto
+     * {@code POST /api/v1/purchases/query} (contrato {@link QueryResponse},
+     * sem {@code protocol}, com {@code products}/{@code bill} no lugar de
+     * {@code product}/{@code billing}). Dá pra registrar dois
+     * {@code @ExceptionHandler} para a MESMA exceção só diferenciando por
+     * {@code produces}/tipo de mídia, o que aqui não se aplica (os dois
+     * endpoints produzem {@code application/json}) - então decidimos pelo
+     * {@code request URI}, que está sempre disponível independente de qual
+     * DTO o Jackson tentou (e falhou) construir.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<PurchaseResponse> handleMalformedJson(HttpMessageNotReadableException ex) {
+    public ResponseEntity<Object> handleMalformedJson(HttpMessageNotReadableException ex, HttpServletRequest request) {
         log.warn("Malformed request body: {}", ex.getMessage());
-        PurchaseResponse response = PurchaseResponse.error("400", "Malformed request body: " + rootMessage(ex), null);
+        String reason = "Malformed request body: " + rootMessage(ex);
+        Object response = isQueryEndpoint(request)
+                ? QueryResponse.error("400", reason)
+                : PurchaseResponse.error("400", reason, null);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    private boolean isQueryEndpoint(HttpServletRequest request) {
+        return request.getRequestURI().endsWith("/query");
     }
 
     /**
@@ -57,6 +81,14 @@ public class GlobalExceptionHandler {
      * caso acima, aqui o objeto {@link PurchaseRequest} FOI construído com
      * sucesso antes da validação falhar, então conseguimos recuperar o
      * protocolo original e logar a tentativa normalmente.
+     *
+     * <p>Este handler é exclusivo de {@code POST /api/v1/purchases}: o
+     * controller só usa {@code @Valid} nesse método
+     * ({@code PurchaseController.registerPurchase}) - o corpo da consulta
+     * de dados ({@code PurchaseQueryRequest}) não tem nenhuma anotação de
+     * Bean Validation de propósito (ver javadoc da classe), então
+     * {@link MethodArgumentNotValidException} nunca é lançada para
+     * {@code POST /api/v1/purchases/query}.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<PurchaseResponse> handleBeanValidation(MethodArgumentNotValidException ex) {

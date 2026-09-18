@@ -1,0 +1,158 @@
+Continuando as melhorias da aplicação,podemos disponibilizar um endpoint de consulta para os fronts consumirem e o backend devolver os dados. Seguem as ideias de contrado de entrada e saída abaixo e seus retornos.
+
+
+Entrada:
+
+{
+	"externalId": "123456", //Campo pode ser nulo se houver um "productId" preenchido. Precisa ter uma das duas informações preenchida
+	"productId": "123456", //Campo pode ser nulo se houver um "externalId" preenchido. Precisa ter uma das duas informações preenchida
+	"returnProductData": true, //Caso não seja enviado, seja enviado como null ou outro valor, considerar "true"
+	"returnPaymentData": true, //Naso não seja enviado, seja enviado como null ou outro valor, considerar "true"
+	"returnBillData": true, //Caso não seja enviado, seja enviado como null ou outro valor, considerar "true"
+	"maxBillReturn": 1 //Caso não seja enviado, seja enviado como null ou outro valor que não for numeral inteiro, considerar "0"
+}
+
+Saída
+
+{
+	"result": "SUCCESS", //SUCCESS ou ERROR - ENUM
+	"code": "200", //Código de retorno do processamento
+	"reason": "Success", //Reason em inglês do erro
+	"account": [ //Estrutura de conta. Se for passado o "externalId" retorna exatamente a informação da conta. Se for passado o "productId", deverá recuperar o account associado para retorno da estrutura.
+		{
+			"externalId": "XXXX1234", //Retorno da base de dados do campo "T_ACCOUNT":"EXTERNAL_ID"
+			"accountId": "ACC_1",  //Retorno da base de dados do prefixo da entidade "ACC_" concatenado com o campo "T_ACCOUNT":"ID"
+			"createdDt": "", //Retorno da base de dados do campo "T_ACCOUNT":"CREATED_DT"
+			"email": "teste@teste.com.br", //Retorno da base de dados do campo "T_ACCOUNT":"EMAIL"
+			"accountSt": "ACTIVE", //Retorno da base de dados do campo "T_DOMAIN_ACCOUNT_STATUS":"BACKEND_VALUE" referente ao campo "T_ACCOUNT":"STATUS"
+			"email": "teste@teste.com.br", //Retorno da base de dados do campo "T_ACCOUNT":"EMAIL"
+			"isAuthorizedFallback": true, //Retorno da base de dados do campo "T_ACCOUNT":"AUTHORIZED_FALLBACK_B". Retornar "true" se a base estiver com o valor "1" e "false" para qualquer outro valor
+			"document" : [ //Estrutura de documentos. Só deverão ser retornados os documentos com o valor "1" no campo "T_ACCOUNT_DOCUMENT":"STATUS". Caso não existam registros elegíveis, retornar null. Retornar null emcasos de erro também.
+				{
+					"type": "CPF", //Retorno da base de dados do campo "T_ACCOUNT_DOCUMENT":"TYPE" referente ao campo "T_ACCOUNT":"ID"
+					"description": "", //Retorno da base de dados do campo "T_ACCOUNT_DOCUMENT":"DESCRIPTION" referente ao campo "T_ACCOUNT":"ID"
+					"value": "*********22" //Retorno da base de dados do campo "T_ACCOUNT_DOCUMENT":"VALUE" referente ao campo "T_ACCOUNT":"ID". Para esse campo deve exibir o valor marcarado com o caractere "*". Somente deverá ser exibido os 2 últimos dígitos. Em caso do valor ter 4 posições, todo ele deverá ser mascarado com o caractere "*"
+				}
+			],
+			"phone": [ //Estrutura de telefones. Só deverão ser retornados os telefones com o valor "1" no campo "T_ACCOUNT_PHONE":"STATUS". Caso não existam registros elegíveis, retornar null. Retornar null emcasos de erro também.
+				{
+					"number": "5521999999999" //Retorno da base de dados do campo "T_ACCOUNT_PHONE":"NUMBER" referente ao campo "T_ACCOUNT":"ID"
+				}
+			]
+		}
+	],
+	"products": [ //Estrutura de produtos. Não retornar estrutura quando o campo "returnProductData" da entrada for "false" (Caso não seja enviado na estrutura de entrada, considerar "true"). Caso devam ser retornadas as informações, retornar os registros independente do status da tabela. Se for passado o "productId" só será exibido o "productId" em questão. Em caso de passar o "external_id" serão exibidos todos da conta.
+		{
+			"productId": "PROD_2", //Retorno da base de dados do prefixo da entidade "PROD_" concatenado com o do campo "T_PRODUCT":"ID"
+			"channel": "WEB", //Retorno da base de dados do campo "T_PRODUCT":"CHANNEL"
+			"externalProductId": "1", //Retorno da base de dados do campo "T_PRODUCT":"PRODUCT_ID"
+			"name": "Teste Streaming 1", //Retorno da base de dados do campo "T_PRODUCT":"NAME"
+			"assetId": "1", //Retorno da base de dados do campo "T_PRODUCT":"ASSET_ID"
+			"createdDt": "1789412244336", //Retorno da base de dados do campo "T_PRODUCT":"CREATED_DT"
+			"transactionDt": "1789412244336", //Retorno da base de dados do campo "T_PRODUCT":"TRANSACTION_DT"
+			"type": "RECURRENCE", //Retorno da base de dados do campo "T_PRODUCT":"TYPE"
+			"isExpirationService": true, //Retorno da base de dados do campo "T_PRODUCT":"EXP_SERV_B". Converter da base: 1="true" e Converter da base: 0="false". No caso de recuperar outro valor da base, considerar "false"
+			"isTrial": false, //Retorno da base de dados do campo "T_PRODUCT":"TRIAL_B". Converter da base: 1="true" e Converter da base: 0="false". No caso de recuperar outro valor da base, considerar "false"
+			"trialDays": null, //Retorno da base de dados do campo "T_PRODUCT":"TRIAL_DAYS". Pode considerar o valor inteiro sem ser string.
+			"cycleStartDt": "1789047480000", //Retorno da base de dados do campo "T_PRODUCT":"CYCLE_START_DT"
+			"cycleEndDt": "1791601200000", //Retorno da base de dados do campo "T_PRODUCT":"CYCLE_END_DT"
+			"nextBillDt": "1791601200000", //Retorno da base de dados do campo "T_PRODUCT":"NEXT_BILL_DT"
+			"recurrenceFrequency": "MONTH", //Retorno da base de dados do campo "T_PRODUCT":"RECURRENCY_FREQUENCY"
+			"currency": "BRL", //Retorno da base de dados do campo "T_PRODUCT":"CURRENCY"
+			"value": 10, //Retorno da base de dados do campo "T_PRODUCT":"CURRENCY". Pode considerar o valor double sem ser string.
+			"isActiveTrial": false, //Esse campo retornará se o trial do assinante está em andamento. A regra está escrita após o payload.
+			"defaultPaymentId": "1", //Retorno da base de dados do prefixo da entidade "PAY_" concatenado com o do campo "T_PRODUCT":"DEFAULT_PAYMENT_ID"
+			"productSt": "ACTIVE", //Retorno da base de dados do campo "T_DOMAIN_PRODUCT_STATUS":"BACKEND_VALUE" referente ao campo "T_PRODUCT":"STATUS"
+			"cancellationReqDt": "" //Retorno da base de dados do campo "T_PRODUCT":"CANCELLATION_REQ_DT"
+			"cancellationSchDt": "" //Retorno da base de dados do campo "T_PRODUCT":"CANCELLATION_SCH_DT"
+	   		"nextBillValue": 10 //Valor da próxima recorrência. Regra: Calcular valor do produto menos os descontos ativos e que possuem "endDt"(discount) maior que o "nextBillDt"(product). Se o valor do "endDt"(discount) for menor ou igual ao "nextBillDt", o desconto não deve ser considerado. Pode considerar o valor double sem ser string.
+			"discount": [ //retornar na estrutura se possuir descontos ativos ("T_DISCOUNT":"STATUS" igual a 1 e "T_DISCOUNT":"END_DT" menor do que o sysdate para o "T_PRODUCT":"ID" igual ao "T_DISCOUNT":"PRODUCT_ID")
+				{
+					"discountId": "DISC_2", //Retorno da base de dados do prefixo da entidade "DISC_" (criar uma nova entidade) concatenado com o do campo "T_DISCOUNT":"ID"
+					"createdDt": "1789589251060", //Retorno da base de dados do campo "T_DISCOUNT":"CREATED_DT"
+					"startDt": "1789589251060",  //Retorno da base de dados do campo "T_DISCOUNT":"START_DT"
+					"endDt": "1789589251060",  //Retorno da base de dados do campo "T_DISCOUNT":"START_DT"
+					"value": 5.5,  //Retorno da base de dados do campo "T_DISCOUNT":"VALUE". Pode considerar o valor double sem ser string.
+					"discountSt": "ACTIVE", //Retorno da base de dados do campo "T_DOMAIN_DISCOUNT_STATUS":"BACKEND_VALUE" referente ao campo "T_DISCOUNT":"STATUS"
+				}
+			]
+		}
+	],
+	"payment": [ //Estrutura de produtos. Não retornar estrutura quando o campo "returnPaymentData" da entrada for "false" (Caso não seja enviado na estrutura de entrada, considerar "true"). Caso devam ser retornadas as informações, retornar os registros que estejam ativos "T_PAYMENT:STATUS" igual a "1". Se for passado o "externalId" retorna todos os "paymentId" elegíveis da conta. Se for passado o "productId", deverá ser passado somente os registros de pagamento associados ao "productId"
+		{
+			"paymentId": "PAY_1", //Retorno da base de dados do prefixo da entidade "PAY_" concatenado com o do campo "T_PAYMENT":"ID"
+			"createdDt": "1789412244336", //Retorno da base de dados do campo "T_PAYMENT":"CREATED_DT"
+			"method": "CREDIT", //Retorno da base de dados do campo "T_PAYMENT":"METHOD"
+			"issuer": "Santander", //Retorno da base de dados do campo "T_PAYMENT":"ISSUER"
+			"cardNumber": "Santander", //Retorno da base de dados do campo "T_PAYMENT":"CARD_NUMBER"
+			"expiration": "03/31", //Retorno da base de dados do campo "T_PAYMENT":"CARD_NUMBER"
+			"isMultiple": true, //Retorno da base de dados do campo "T_PAYMENT":"MULTIPLE_B". Converter da base: 1="true" e Converter da base: 0="false". No caso de recuperar outro valor da base, considerar "false"
+			"isDefault": true, //Retorno da base de dados do campo "T_PAYMENT":"DEFAULT_B". Converter da base: 1="true" e Converter da base: 0="false". No caso de recuperar outro valor da base, considerar "false"
+			"installments": 1 //Retorno da base de dados do campo "T_PAYMENT":"INSTALLMENTS". Pode considerar o valor inteiro sem ser string.
+			"paymentSt": "ACTIVE" //Retorno da base de dados do campo "T_DOMAIN_PAYMENT_STATUS":"BACKEND_VALUE" referente ao campo "T_PAYMENT":"STATUS"
+		}
+	],
+	"bill": [ //Estrutura de faturas. Não retornar estrutura quando o campo "returnBillData" da entrada for "false" (Caso não seja enviado na estrutura de entrada, considerar "true"). Caso devam ser retornadas as informações, retornar os registros independente do status da tabela. Se for passado o "externalId" retornarão os registros de faturas daquela conta. Se for passado o "productId" serão passados os registros de faturas daquele produto. Regras de utilização do registro dessa estrutura estão abaixo do payload.
+		{
+			"billId": "1", //Retorno da base de dados do prefixo da entidade "BILL_" concatenado com o do campo "T_BILL":"ID"
+			"createdDt": "1", //Retorno da base de dados do campo "T_BILL":"CREATED_DT"
+			"cycleStartDt": "1789586715201", //Retorno da base de dados do campo "T_BILL":"CYCLE_START_DT"
+			"cycleEndDt": "1792119600000", //Retorno da base de dados do campo "T_BILL":"CYCLE_END_DT"
+			"dueDt": "1789586715201", //Retorno da base de dados do campo "T_BILL":"DUE_DT"
+			"productId": "1", //Retorno da base de dados do campo "T_BILL":"CREATED_DT"
+			"productValue": 10, //Retorno da base de dados do campo "T_BILL":"PRODUCT_VALUE". Pode considerar o valor double sem ser string.
+			"discountValue": 0, //Retorno da base de dados do campo "T_BILL":"DISCOUNT_VALUE". Pode considerar o valor double sem ser string.
+			"taxValue": 2, //Retorno da base de dados do campo "T_BILL":"TAX_VALUE". Pode considerar o valor double sem ser string.
+			"chargedValue": 12, //Retorno da base de dados do campo "T_BILL":"CHARGED_VALUE". Pode considerar o valor double sem ser string.
+			"installments": 1, //Retorno da base de dados do campo "T_BILL":"INSTALLMENTS". Pode considerar o valor double sem ser string.
+			"splitValue": 12, //Retorno da base do cálculo "T_BILL":"PRODUCT_VALUE" dividido pelo valor do campo "T_BILL":"INSTALLMENTS" (Utilizar o valor "Inteiro" da divisão com duas casas decimais para exibir nesta chave). Pode considerar o valor double sem ser string.
+			"currency": "BRL", //Retorno da base de dados do campo "T_BILL":"CURRENCY"
+			"provider": "CIELO", //Retorno da base de dados do campo "T_BILL":"PROVIDER"
+			"paymentMethod": "CREDIT", //Retorno da base de dados do campo "T_BILL":"PAYMENT_METHOD"
+			"billSt": "PAID", //Retorno da base de dados do campo "T_DOMAIN_BILL_STATUS":"BACKEND_VALUE" referente ao campo "T_BILL":"STATUS"
+			"billType": "BUY", //Retorno da base de dados do campo "T_DOMAIN_BILL_TYPE":"BACKEND_VALUE" referente ao campo "T_BILL":"BILL_TYPE"
+			"tax": [ //estrutra de taxas pagas pelo assinante
+				{
+					"name": "CBS", //Retorno da base de dados do campo "T_BILL_TAX":"NAME"
+					"value": 0.5 //Retorno da base de dados do campo "T_BILL_TAX":"VALUE". Pode considerar o valor double sem ser string.
+				},
+					{
+					"name": "IBS",
+					"value": 1.5
+				}
+			]
+		}
+	]
+}
+
+//Regra para o campo "isActiveTrial" retornar "true":
+
+- Campo "T_PRODUCT":"TRIAL_B" deve ter o valor "1"
+- "T_PRODUCT":"TRIAL_DAYS" deve ter seu valor convertido em segundos e somado ao campo "T_PRODUCT":"TRANSACTION_DT". Com o resultado desse cálculo deverá ser considerado o dia posterior as 00:00 (UTC-3) como a data de fim do trial
+- Se a data do fim do trial for posterior ao sysdate, considerar o valor "true"
+- Para qualquer outro caso considerar o campo "false"
+
+
+//Regra para a estrutura "blll"
+
+- Devemos considerar sempre os registros em modo decrescente em relação ao campo "T_BILL:DUE_DT".
+- O número máximo de faturas retornadas dentro da estrutura será comandado pelo campo "maxBillReturn" da entrada
+- Se for considerado (conforme registros passados de modo errado) ou enviado o valor "0" no campo "maxBillReturn", todas as faturas devem ser consideradas para ordenamento e retorno na saída
+
+
+Exemplos de erro:
+
+{
+	"result": "ERROR",
+	"code": "400",
+	"reason": "can't find a externalId or productId", //Reason em inglês do erro. (Pode utilizar um melhor)
+}
+
+{
+	"result": "ERROR",
+	"code": "404",
+	"reason": "[externalId|productId] Not found", //Reason em inglês do erro. (Pode utilizar um melhor)
+}
+
+
+- Considere sempre evoluir os testes com as implementações feitas.

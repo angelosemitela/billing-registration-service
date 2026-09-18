@@ -45,6 +45,16 @@ public final class AssetIdFormatter {
     }
 
     /**
+     * Formata o ID técnico de um desconto ({@code T_DISCOUNT.ID}) - usado
+     * apenas pela consulta de dados ({@code PurchaseQueryService}), já que a
+     * criação de compra (POST /api/v1/purchases) nunca devolve descontos na
+     * resposta.
+     */
+    public static String discount(Long technicalId) {
+        return format("DISC", technicalId);
+    }
+
+    /**
      * Sobrecarga para os poucos casos em que o ID já chega como {@code String}
      * (ex: {@code T_PRODUCT.DEFAULT_PAYMENT_ID}, que guarda o ID técnico do
      * pagamento como texto solto - ver {@code ProductEntity}).

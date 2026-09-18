@@ -1,5 +1,16 @@
 name: CI
 
+# Nota (17/09/2026): as actions abaixo estão fixadas na major version mais
+# recente de cada uma (checkout@v7, setup-java@v5, upload-artifact@v7) -
+# fixar só a major (em vez do SHA exato do commit ou de uma versão menor)
+# é a prática recomendada pela própria GitHub: recebe automaticamente
+# patches/minor releases (correções de bug, novas versões de runtime
+# Node.js suportadas) sem quebrar a interface do "with:" usada aqui. As
+# versões acima já corrigem o aviso de depreciação visto no primeiro run
+# deste workflow ("Node.js 20 is deprecated" / "setup-java v4 is
+# deprecated") - as v4 usadas originalmente ainda rodavam sobre Node.js 20,
+# enquanto as majors atuais já rodam sobre um runtime mais novo.
+#
 # Quando este workflow roda:
 # - em todo push para main/master (ex: merge de PR, ou push direto);
 # - em todo pull request que tenha main/master como destino - assim o
@@ -23,10 +34,10 @@ jobs:
 
     steps:
       - name: Checkout do código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configura o JDK 25 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '25'
@@ -60,7 +71,7 @@ jobs:
       # GitHub Actions, sem precisar rodar localmente.
       - name: Publicar relatório de cobertura (JaCoCo) como artefato
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jacoco-report
           path: target/site/jacoco/
