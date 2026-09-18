@@ -1,6 +1,7 @@
 package com.aalvarenga.billing.service;
 
 import com.aalvarenga.billing.dto.request.PurchaseQueryRequest;
+import com.aalvarenga.billing.dto.response.QueryAccountItem;
 import com.aalvarenga.billing.dto.response.QueryBillItem;
 import com.aalvarenga.billing.dto.response.QueryDiscountItem;
 import com.aalvarenga.billing.dto.response.QueryPaymentItem;
@@ -104,9 +105,16 @@ class PurchaseQueryServiceTest {
                 .build();
     }
 
-    private ProductEntity product(long id, long accountId) {
+    // "accountId" não é parâmetro - IntelliJ aponta "Value of parameter
+    // 'accountId' is always '1L'" porque todo teste desta classe usa a
+    // mesma conta (id 1L, ver account() acima). Diferente do padrão
+    // "generalização deliberada" mantido em AssetIdFormatter/
+    // PurchaseValidationService (ver doc de decisões), aqui não há
+    // benefício de reaproveitamento futuro - é só um helper de teste local
+    // - então o parâmetro foi removido em vez de mantido.
+    private ProductEntity product(long id) {
         return ProductEntity.builder()
-                .id(id).accountId(accountId).productId("1").name("Test Streaming")
+                .id(id).accountId(1L).productId("1").name("Test Streaming")
                 .type("RECURRENCE").expirationService(true).recurrenceFrequency("MONTH")
                 .value(new BigDecimal("10.00")).currency("BRL").trial(false)
                 .assetId("1").cycleStartDt(1_000L).cycleEndDt(2_000L)
@@ -122,7 +130,7 @@ class PurchaseQueryServiceTest {
     @Test
     void successByExternalId_masksSensitiveFieldsAndFormatsIds() {
         AccountEntity account = account();
-        ProductEntity product = product(2L, 1L);
+        ProductEntity product = product(2L);
         product.setNextBillDt(null); // simplifica: sem próxima cobrança neste teste
 
         ValidatedQueryContext context = new ValidatedQueryContext(account, null, true, true, true, 0);
@@ -156,19 +164,20 @@ class PurchaseQueryServiceTest {
         assertThat(response.result()).isEqualTo(ResultStatus.SUCCESS);
 
         assertThat(response.account()).hasSize(1);
-        assertThat(response.account().get(0).accountId()).isEqualTo("ACCT_1");
-        assertThat(response.account().get(0).document().get(0).value()).isEqualTo("*********22");
-        assertThat(response.account().get(0).phone().get(0).number()).isEqualTo("5521999999999");
+        QueryAccountItem accountItem = response.account().getFirst();
+        assertThat(accountItem.accountId()).isEqualTo("ACCT_1");
+        assertThat(accountItem.document().getFirst().value()).isEqualTo("*********22");
+        assertThat(accountItem.phone().getFirst().number()).isEqualTo("5521999999999");
 
         assertThat(response.products()).hasSize(1);
-        QueryProductItem productItem = response.products().get(0);
+        QueryProductItem productItem = response.products().getFirst();
         assertThat(productItem.productId()).isEqualTo("PROD_2");
         assertThat(productItem.defaultPaymentId()).isEqualTo("PAY_3");
         assertThat(productItem.productSt()).isEqualTo("ACTIVE");
         assertThat(productItem.discount()).isNull();
 
         assertThat(response.payment()).hasSize(1);
-        QueryPaymentItem paymentItem = response.payment().get(0);
+        QueryPaymentItem paymentItem = response.payment().getFirst();
         assertThat(paymentItem.paymentId()).isEqualTo("PAY_3");
         // 4 últimos dígitos visíveis (decisão do usuário - ver doc de decisões do projeto).
         assertThat(paymentItem.cardNumber()).isEqualTo("************1111");
@@ -186,7 +195,7 @@ class PurchaseQueryServiceTest {
     @Test
     void successByProductId_scopesEverythingToThatSingleProduct() {
         AccountEntity account = account();
-        ProductEntity product = product(2L, 1L);
+        ProductEntity product = product(2L);
         product.setNextBillDt(null);
 
         ValidatedQueryContext context = new ValidatedQueryContext(account, product, false, true, false, 0);
@@ -203,7 +212,9 @@ class PurchaseQueryServiceTest {
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest(null, "PROD_2", false, true, false, null));
 
         assertThat(responseEntity.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(responseEntity.getBody().result()).isEqualTo(ResultStatus.SUCCESS);
+        QueryResponse response = responseEntity.getBody();
+        assertThat(response).isNotNull();
+        assertThat(response.result()).isEqualTo(ResultStatus.SUCCESS);
         // returnProductData=false e returnBillData=false: os repositórios
         // "caros" de produto/fatura não podem ter sido chamados.
         verifyNoInteractions(discountRepository, billRepository, billTaxRepository);
@@ -223,7 +234,7 @@ class PurchaseQueryServiceTest {
         long nextBillDt = now + 200_000L;
 
         AccountEntity account = account();
-        ProductEntity product = product(2L, 1L);
+        ProductEntity product = product(2L);
         product.setValue(new BigDecimal("100.00"));
         product.setNextBillDt(nextBillDt);
 
@@ -248,7 +259,9 @@ class PurchaseQueryServiceTest {
 
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest(null, "PROD_2", true, false, false, null));
 
-        QueryProductItem productItem = responseEntity.getBody().products().get(0);
+        QueryResponse response = responseEntity.getBody();
+        assertThat(response).isNotNull();
+        QueryProductItem productItem = response.products().getFirst();
         // Lista de desconto "vigente": os dois com status ativo e endDt > AGORA
         // (exclui o já expirado e o cancelado).
         assertThat(productItem.discount()).extracting(QueryDiscountItem::discountId)
@@ -265,7 +278,7 @@ class PurchaseQueryServiceTest {
     @Test
     void maxBillReturn_limitsHowManyBillsComeBack() {
         AccountEntity account = account();
-        ProductEntity product = product(2L, 1L);
+        ProductEntity product = product(2L);
         product.setNextBillDt(null);
 
         ValidatedQueryContext context = new ValidatedQueryContext(account, null, false, false, true, 2);
@@ -275,9 +288,9 @@ class PurchaseQueryServiceTest {
         when(accountPhoneRepository.findByAccountIdAndStatus(1L, DomainStatus.ACTIVE)).thenReturn(List.of());
         when(productRepository.findByAccountId(1L)).thenReturn(List.of(product));
 
-        BillEntity bill1 = bill(101L, 2L, 3_000L);
-        BillEntity bill2 = bill(102L, 2L, 2_000L);
-        BillEntity bill3 = bill(103L, 2L, 1_000L);
+        BillEntity bill1 = bill(101L, 3_000L);
+        BillEntity bill2 = bill(102L, 2_000L);
+        BillEntity bill3 = bill(103L, 1_000L);
         // O mock já simula o contrato do repositório: ordenado desc por dueDt.
         when(billRepository.findByProductIdInOrderByDueDtDesc(List.of(2L))).thenReturn(List.of(bill1, bill2, bill3));
         when(billTaxRepository.findByBillIdIn(List.of(101L, 102L))).thenReturn(List.of());
@@ -286,14 +299,19 @@ class PurchaseQueryServiceTest {
 
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest("EXT-1", null, false, false, true, 2));
 
-        List<QueryBillItem> bills = responseEntity.getBody().bill();
+        QueryResponse response = responseEntity.getBody();
+        assertThat(response).isNotNull();
+        List<QueryBillItem> bills = response.bill();
         assertThat(bills).hasSize(2);
         assertThat(bills).extracting(QueryBillItem::billId).containsExactly("BILL_101", "BILL_102");
     }
 
-    private BillEntity bill(long id, long productId, long dueDt) {
+    // Mesmo racional do helper product(id) acima: "productId" sempre valia
+    // 2L (todas as faturas deste teste pertencem ao mesmo produto) - warning
+    // genuíno do IntelliJ, parâmetro removido.
+    private BillEntity bill(long id, long dueDt) {
         return BillEntity.builder()
-                .id(id).codeId("1").productId(productId).productValue(new BigDecimal("10.00"))
+                .id(id).codeId("1").productId(2L).productValue(new BigDecimal("10.00"))
                 .discountValue(BigDecimal.ZERO).taxValue(new BigDecimal("2.00")).chargedValue(new BigDecimal("12.00"))
                 .currency("BRL").transactionId("TX-" + id).installments("1").provider("CIELO")
                 .paymentMethod("CREDIT").status(4).billType(1)
@@ -310,13 +328,13 @@ class PurchaseQueryServiceTest {
         long now = System.currentTimeMillis();
         AccountEntity account = account();
 
-        ProductEntity ongoingTrial = product(2L, 1L);
+        ProductEntity ongoingTrial = product(2L);
         ongoingTrial.setTrial(true);
         ongoingTrial.setTrialDays(5);
         ongoingTrial.setTransactionDt(now - java.util.concurrent.TimeUnit.DAYS.toMillis(1)); // comprou ontem, trial de 5 dias -> ainda em trial
         ongoingTrial.setNextBillDt(null);
 
-        ProductEntity endedTrial = product(4L, 1L);
+        ProductEntity endedTrial = product(4L);
         endedTrial.setId(4L);
         endedTrial.setTrial(true);
         endedTrial.setTrialDays(5);
@@ -334,7 +352,9 @@ class PurchaseQueryServiceTest {
 
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest("EXT-1", null, true, false, false, null));
 
-        List<QueryProductItem> products = responseEntity.getBody().products();
+        QueryResponse response = responseEntity.getBody();
+        assertThat(response).isNotNull();
+        List<QueryProductItem> products = response.products();
         assertThat(products).extracting(QueryProductItem::productId, QueryProductItem::isActiveTrial)
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple("PROD_2", true),
@@ -353,9 +373,11 @@ class PurchaseQueryServiceTest {
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest(null, null, null, null, null, null));
 
         assertThat(responseEntity.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(responseEntity.getBody().result()).isEqualTo(ResultStatus.ERROR);
-        assertThat(responseEntity.getBody().code()).isEqualTo("400");
-        assertThat(responseEntity.getBody().account()).isNull();
+        QueryResponse response = responseEntity.getBody();
+        assertThat(response).isNotNull();
+        assertThat(response.result()).isEqualTo(ResultStatus.ERROR);
+        assertThat(response.code()).isEqualTo("400");
+        assertThat(response.account()).isNull();
 
         verify(requestLogService).log(anyString(), eq("ERROR"), eq("400"),
                 eq("can't find a externalId or productId"), anyString(), anyString());

@@ -126,6 +126,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isInstanceOf(QueryResponse.class);
         QueryResponse body = (QueryResponse) response.getBody();
+        assertThat(body).isNotNull();
         assertThat(body.result()).isEqualTo(ResultStatus.ERROR);
         assertThat(body.reason()).contains("Unexpected token");
         assertThat(body.account()).isNull();

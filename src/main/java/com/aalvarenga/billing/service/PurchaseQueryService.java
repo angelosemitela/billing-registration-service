@@ -12,7 +12,6 @@ import com.aalvarenga.billing.dto.response.QueryResponse;
 import com.aalvarenga.billing.dto.response.QueryTaxItem;
 import com.aalvarenga.billing.entity.AccountDocumentEntity;
 import com.aalvarenga.billing.entity.AccountEntity;
-import com.aalvarenga.billing.entity.AccountPhoneEntity;
 import com.aalvarenga.billing.entity.BillEntity;
 import com.aalvarenga.billing.entity.BillTaxEntity;
 import com.aalvarenga.billing.entity.DiscountEntity;
