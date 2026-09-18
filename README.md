@@ -943,9 +943,80 @@ focados nos pontos de maior risco/complexidade:
   "fail-safe" implícito de tratar qualquer valor de coluna diferente de
   `"1"` como `false`.
 
-Não incluímos testes de integração com banco real neste momento (ver
-"Evoluções futuras" - Testcontainers) porque as triggers de auditoria são
-SQL nativo do MySQL e não rodam em bancos em memória como H2.
+Os testes acima são todos de UNIDADE (sem subir Spring context nem banco -
+por isso não incluímos H2: as triggers de auditoria são SQL nativo do MySQL
+e não rodariam num banco em memória). Ver a próxima seção
+("Testes funcionais/E2E") para a camada que SOBE a aplicação inteira contra
+um MySQL real.
+
+### Testes funcionais/E2E (Cucumber + REST Assured + Testcontainers)
+
+```bash
+mvn verify
+```
+
+Diferente dos testes de unidade acima (que rodam com `mvn test`, em
+milissegundos, sem Docker), esta suíte (sessão de 18/09/2026) sobe a
+aplicação Spring Boot INTEIRA (Tomcat embutido, porta aleatória) contra um
+MySQL real e descartável (via [Testcontainers](https://testcontainers.com/),
+mesma imagem `mysql:8.4` usada em desenvolvimento local) e bate nela via
+HTTP com [REST Assured](https://rest-assured.io/) - exatamente como um
+cliente real faria. É a substituição, dentro do próprio projeto Java, de
+uma ferramenta em shell script que fazia esse mesmo tipo de teste
+(disparar uma requisição e validar o resultado) fora do repositório.
+
+Roda separada dos testes de unidade por causa do **`maven-failsafe-plugin`**
+(fases `integration-test`/`verify`, não `test` - ver comentário completo no
+`pom.xml`): assim, `mvn test` continua rápido e sem depender de Docker no
+dia a dia, e `mvn verify` (o que o CI já usa) continua sendo um único
+comando que cobre tudo (unidade + funcional/E2E + qualidade estática).
+**Pré-requisito**: Docker precisa estar disponível (Docker Desktop
+localmente; já vem pronto nos runners `ubuntu-latest` do GitHub Actions).
+
+Dois arquivos `.feature` (Gherkin, em português - `src/test/resources/features/`):
+
+- **`registro-e-consulta-de-compra.feature`** - o ciclo completo pedido:
+  1) dispara uma compra (`POST /api/v1/purchases`); 2) confirma que conta,
+  produtos e faturas foram PERSISTIDOS no banco (consultando os mesmos
+  repositórios Spring Data que a aplicação usa); 3) consulta essa mesma
+  massa via `POST /api/v1/purchases/query` e confirma que a resposta bate
+  com o que foi persistido.
+- **`erros-de-validacao.feature`** - um *Esquema de Cenário* (Scenario
+  Outline) com uma tabela de exemplos: cada LINHA da tabela é uma regra de
+  `PurchaseValidationService` violada de propósito (um campo vira vazio/
+  nulo/ausente/inválido) e a linha confere o status HTTP e o trecho do
+  motivo esperados. Adicionar cobertura para uma regra de validação nova
+  normalmente é só uma linha nova nessa tabela, não uma classe/método Java
+  novo - o que torna essa suíte fácil de escalar (ver também a seção
+  "Escalando para outros fluxos" logo abaixo).
+
+> **Nota de transparência** (mesmo padrão já usado neste projeto para
+> JaCoCo/Checkstyle/SpotBugs): Cucumber, REST Assured e Testcontainers são
+> ferramentas totalmente novas nesta sessão, e o sandbox usado para montar
+> esta suíte não tem acesso ao Maven Central - ou seja, nada aqui pôde ser
+> compilado/executado de fato antes de entregar. Cada regra de negócio
+> coberta por `erros-de-validacao.feature` foi conferida manualmente,
+> passo a passo, contra o código-fonte de `PurchaseValidationService`
+> (ordem exata dos `if`s, mensagens exatas) - mas é esperado que a primeira
+> execução real de `mvn verify` aponte 1-2 ajustes pontuais (um import, uma
+> classe da API do Cucumber com nome ligeiramente diferente do esperado
+> etc.), do mesmo jeito que já aconteceu com o Checkstyle na sua primeira
+> rodada real.
+
+#### Escalando para outros fluxos (recorrência, cancelamento)
+
+A infraestrutura desta suíte (`SpringIntegrationConfig` - o container
+Testcontainers + o contexto Spring, subidos uma única vez para toda a
+suíte) foi propositalmente deixada em uma classe própria, sem nada
+específico de "compra" nela - um futuro job de recorrência ou de
+cancelamento automático (ver "Próximo serviço natural a construir", mais
+abaixo) reaproveitaria exatamente a mesma classe, bastando acrescentar:
+um novo arquivo `.feature` (ex: `recorrencia.feature`), uma nova classe de
+step definitions (ex: `RecorrenciaSteps`) e, se o novo fluxo tiver sua
+própria fixture de payload, um novo arquivo em
+`src/test/resources/cucumber/`. Nenhuma mudança no `pom.xml` ou no
+`RunCucumberIT` seria necessária - o `@SelectClasspathResource("features")`
+já descobre qualquer `.feature` nova automaticamente.
 
 ### Cobertura de código (JaCoCo)
 
@@ -1146,15 +1217,16 @@ inteiro se adequar.
 > mudança de ferramenta de build (JaCoCo, warnings do IntelliJ etc.): você
 > roda localmente, compartilha o log se algo pintar, e ajustamos juntos.
 
-**Por que não precisa subir um MySQL no pipeline:** toda a suíte atual é de
-testes unitários com Mockito (repositórios e dependências mockados, sem
-`@SpringBootTest`/`@DataJpaTest`) - nenhum teste hoje toca um banco de
-verdade, então não há necessidade de um serviço de banco no job de CI. Isso
-muda no dia em que a camada de orquestração/persistência (`AccountService`
-etc., ver seção de cobertura acima) ganhar testes de integração com
-Testcontainers: nesse ponto, o job de CI passaria a precisar do Docker (que
-já vem pré-instalado nos runners `ubuntu-latest` do GitHub, então a
-mudança seria só na suíte de testes, não no workflow).
+**Sobre precisar (ou não) de um MySQL no pipeline:** os testes de UNIDADE
+(Mockito, fase `test`) continuam sem tocar em banco nenhum. Já os testes
+funcionais/E2E acrescentados em 18/09/2026 (ver seção "Testes funcionais/
+E2E" acima) sobem um MySQL real via Testcontainers, na fase
+`integration-test`/`verify` - por isso `mvn -B verify` no `ci.yml` já cobre
+isso automaticamente, sem precisar de um serviço `services:` de MySQL
+separado no workflow: o próprio Testcontainers sobe e derruba o container
+dentro do job. O único pré-requisito é Docker, que os runners
+`ubuntu-latest` do GitHub já trazem pré-instalado - nenhuma mudança em
+`ci.yml` foi necessária por causa disso.
 
 **Possibilidades para estudos futuros:**
 
@@ -1166,7 +1238,7 @@ mudança seria só na suíte de testes, não no workflow).
 | Gate de qualidade estática | Checkstyle + SpotBugs (ver seção acima) | **SonarQube/SonarCloud** - mais completo que os dois juntos (duplicação de código, gate de "cobertura só no código NOVO/alterado de um PR" em vez do projeto inteiro, detecção de vulnerabilidades, dashboard visual) e gratuito para repositórios públicos, mas exige criar conta em sonarcloud.io e configurar um token como secret do repositório - próximo passo natural depois de validar Checkstyle/SpotBugs |
 | Segurança da pipeline | `permissions` padrão (herdadas), actions fixadas por major version | `permissions: contents: read` explícito no workflow (princípio do menor privilégio), CodeQL (SAST nativo do GitHub, grátis p/ repositório público), Dependabot (atualiza dependências Maven E as próprias GitHub Actions, com alerta de CVE) - tema em alta desde os ataques de supply-chain via actions comprometidas em 2025 |
 | Feedback no PR | Log bruto do `mvn verify` | Anotar falhas de teste direto no diff do PR (ex: `dorny/test-reporter`), resumo de cobertura/qualidade direto na tela do Actions (`$GITHUB_STEP_SUMMARY`), `concurrency` (cancela automaticamente um run anterior quando chega um push novo no mesmo PR, economizando minutos de CI) |
-| Testes de integração em CI | Nenhum ainda (só unitários) | Testcontainers + serviço de MySQL real dentro do próprio job, ou `services:` do GitHub Actions apontando pra uma imagem `mysql` |
+| Testes de integração em CI | ✅ Testcontainers (Cucumber + REST Assured, fase `integration-test`/`verify` - ver seção "Testes funcionais/E2E") | `services:` do GitHub Actions apontando pra uma imagem `mysql` fixa (alternativa ao Testcontainers - container sobe uma vez para o job inteiro, em vez de ser gerenciado pelo próprio teste; mais rápido, porém menos portátil para quem roda localmente) |
 | Empacotamento/deploy | `package` gera o JAR, mas não publica em lugar nenhum | Publicação da imagem Docker (`docker build`/`docker push`) em um registry, como próximo passo rumo a deploy contínuo (CD) |
 
 ## Evoluções futuras / outros frameworks para estudo
@@ -1181,7 +1253,7 @@ de outros frameworks para estudos futuros"):
 | Migração de banco | Flyway | **Liquibase** (changelogs em XML/YAML/JSON, rollback mais flexível) |
 | Validação | Bean Validation + serviço próprio | **Vavr** ou um padrão *Railway-Oriented Programming* para acumular múltiplos erros de validação em vez de parar no primeiro |
 | Mensageria/eventos | Síncrono (REST) | Publicar um evento (ex: `PurchaseRegisteredEvent`) em **Kafka** ou **RabbitMQ** ao final da compra, permitindo que outros serviços (ex: um futuro serviço de cobrança recorrente) reajam de forma assíncrona e desacoplada |
-| Testes de integração | Só testes unitários | **Testcontainers** (sobe um MySQL real em Docker durante os testes, incluindo as triggers) + **Spring Boot Test** (`@SpringBootTest`) |
+| Testes funcionais/E2E | ✅ **Cucumber + REST Assured + Testcontainers** (ver seção "Testes funcionais/E2E") | **Karate DSL** (uma linguagem própria para chamadas HTTP + assertions JSON, sem precisar escrever step definitions em Java - curva de aprendizado ainda menor); JUnit 5 puro + REST Assured (sem BDD/Gherkin, mais direto para quem não precisa que os cenários sejam legíveis por não-programadores); **Postman/Newman** ou **Bruno** (coleções de requisições fora do código-fonte, rodadas via CLI no CI) |
 | Observabilidade | Actuator básico | **Micrometer + Prometheus + Grafana** para métricas; **OpenTelemetry** para tracing distribuído |
 | Documentação da API | Nenhuma ainda | **springdoc-openapi** para gerar Swagger UI automaticamente a partir dos DTOs/controllers |
 | Idempotência/cache | Consulta direta ao `T_LOG` | **Redis** como cache de idempotência (mais rápido que consultar o banco relacional a cada requisição) |

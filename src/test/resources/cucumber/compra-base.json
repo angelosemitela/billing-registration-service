@@ -1,0 +1,66 @@
+{
+  "channel": "WEB",
+  "transactionDt": "__TRANSACTION_DT__",
+  "protocol": "__PROTOCOL__",
+  "account": [
+    {
+      "id": null,
+      "name": "Cucumber E2E",
+      "externalId": "__EXTERNAL_ID__",
+      "email": "cucumber.e2e@example.com",
+      "isAuthorizedFallback": true,
+      "document": [
+        { "type": "CPF", "description": null, "value": "11122233344", "country": "BR" }
+      ],
+      "address": [],
+      "phone": []
+    }
+  ],
+  "product": [
+    {
+      "codeId": "1",
+      "name": "Produto E2E",
+      "type": "ONESHOT",
+      "isExpiriationService": false,
+      "recurrenceFrequency": null,
+      "productValue": 100,
+      "discountValue": 0,
+      "discountCycles": 0,
+      "currency": "BRL",
+      "isTrial": false,
+      "trialDays": null
+    }
+  ],
+  "payment": [
+    {
+      "method": "PIX",
+      "issuer": "Itau",
+      "cardNumber": null,
+      "expiration": null,
+      "isMultiple": null,
+      "isDefault": true,
+      "installments": 1,
+      "token": [
+        { "name": "ACCESS_TOKEN", "id": "__TOKEN_ID__", "gateway": "INTERNAL", "expirationDate": null }
+      ],
+      "brand": null
+    }
+  ],
+  "billing": [
+    {
+      "codeId": "1",
+      "productValue": 100,
+      "discountValue": 0,
+      "taxValue": 10,
+      "chargedValue": 110,
+      "currency": "BRL",
+      "transactionId": "__TRANSACTION_ID__",
+      "installments": 1,
+      "provider": "CIELO",
+      "paymentMethod": "PIX",
+      "tax": [
+        { "name": "CBS", "value": 10 }
+      ]
+    }
+  ]
+}

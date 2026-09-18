@@ -57,10 +57,21 @@
          específica (arquivo + regra), em vez de desativar a regra inteira
          (que continua útil para MaskingUtil/AssetIdFormatter/etc. - ver
          módulo abaixo) ou de inventar uma exceção genérica que abriria
-         brecha demais. -->
+         brecha demais.
+
+         AMPLIADA em 18/09/2026 (testes funcionais/E2E com Cucumber) para
+         cobrir também "RunCucumberIT": uma classe "@Suite" do JUnit
+         Platform (ver src/test/java/.../cucumber/RunCucumberIT.java) é, por
+         definição, uma classe MARCADORA vazia (zero métodos, só anotações)
+         - o mesmo padrão que engana esta regra (ela também "só tem métodos
+         estáticos", já que não tem nenhum). É o mesmo tipo de falso
+         positivo do BillingApplication, então tratamos igual: suprimimos
+         pontualmente em vez de forçar um construtor privado sem sentido
+         numa classe cujo único propósito é ser descoberta pela JUnit
+         Platform. -->
     <module name="SuppressionSingleFilter">
         <property name="checks" value="HideUtilityClassConstructor"/>
-        <property name="files" value="BillingApplication\.java"/>
+        <property name="files" value="(BillingApplication|RunCucumberIT)\.java"/>
     </module>
 
     <module name="TreeWalker">

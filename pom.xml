@@ -49,6 +49,30 @@
              em <annotationProcessorPaths>, sobre o motivo real do build ter
              quebrado). -->
         <lombok.version>1.18.48</lombok.version>
+
+        <!-- Cucumber-JVM (BDD): versão mais recente estável no momento desta
+             adição (18/09/2026) - todos os módulos do Cucumber (cucumber-java,
+             cucumber-junit-platform-engine, cucumber-spring) são liberados
+             juntos, sempre com o MESMO número de versão, então uma única
+             property cobre os três abaixo. Diferente do JaCoCo/Checkstyle,
+             aqui não há risco de incompatibilidade com o "class file version"
+             do Java 25: o Cucumber não faz nenhuma leitura/parsing de
+             bytecode (não é uma ferramenta de análise estática) - ele só
+             executa métodos Java normalmente via reflection, então qualquer
+             versão recente já roda sem problema no JDK 25. -->
+        <cucumber.version>7.34.8</cucumber.version>
+
+        <!-- Testcontainers: FOI necessário declarar explicitamente (ver
+             comentário completo na dependência "testcontainers-mysql" mais
+             abaixo, na seção de TESTES FUNCIONAIS/E2E, para o motivo real -
+             a suposição original, de que o "spring-boot-dependencies"
+             cobriria isso sozinho, se mostrou incompleta na primeira
+             execução real do usuário). O valor abaixo é o MESMO usado
+             internamente pelo "spring-boot-dependencies:4.1.1" (conferido
+             na própria definição do BOM do Spring Boot) - usar o mesmo
+             número evita duas versões diferentes de Testcontainers
+             convivendo no classpath de teste. -->
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -130,22 +154,125 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- ================= TESTES ================= -->
+        <!-- ================= TESTES (unidade) ================= -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- ================= TESTES FUNCIONAIS/E2E (sessão de 18/09/2026) =================
+
+             Diferente dos testes de unidade acima (services com Mockito, sem
+             subir NADA), o grupo de dependências abaixo sustenta uma camada
+             de teste completamente diferente: sobe a aplicação Spring Boot
+             INTEIRA (Tomcat embutido de verdade, banco MySQL de verdade via
+             Testcontainers) e bate nela via HTTP, exatamente como um cliente
+             real faria - documentado em detalhe no doc de decisões do
+             projeto ("Testes funcionais/E2E com Cucumber + REST Assured +
+             Testcontainers") e no README, seção "Testes". Ficam em módulos
+             (dependências) separados dos de unidade acima só por
+             organização/didática - tecnicamente todos rodam a partir de
+             `src/test/java`, o que os separa de fato é a FASE do Maven em
+             que cada grupo executa (ver maven-surefire-plugin/
+             maven-failsafe-plugin mais abaixo, na seção <build>). -->
+
+        <!-- Motor do Cucumber: interpreta os arquivos .feature (Gherkin) e
+             invoca os métodos Java anotados com @Dado/@Quando/@Então
+             ("step definitions") correspondentes a cada linha. -->
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-java</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Ponte entre o Cucumber e a JUnit Platform: sem isso, o
+             maven-failsafe-plugin (que só sabe "falar" JUnit Platform/JUnit
+             5) não teria como descobrir e rodar os cenários do Cucumber. -->
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-junit-platform-engine</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Integração oficial Cucumber<->Spring: permite que as classes de
+             step definitions recebam @Autowired (repositórios, por exemplo)
+             como qualquer bean Spring, e é quem sobe o ApplicationContext
+             UMA VEZ só para toda a suíte (reaproveitado entre cenários,
+             igual a um @SpringBootTest comum) em vez de recriar o contexto
+             (e o container do Testcontainers) a cada cenário. -->
+        <dependency>
+            <groupId>io.cucumber</groupId>
+            <artifactId>cucumber-spring</artifactId>
+            <version>${cucumber.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- "@Suite"/"@SelectClasspathResource": API usada pela classe
+             RunCucumberIT (ver src/test/java/.../cucumber/RunCucumberIT.java)
+             para dizer à JUnit Platform "descubra e rode os cenários do
+             Cucumber aqui". Sem versão explícita de propósito: gerenciada
+             pelo BOM do JUnit que o "spring-boot-dependencies" (pai deste
+             pom) já importa - mesmo padrão já usado para spring-boot-starter-test
+             acima (nunca precisou de versão própria). -->
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-suite</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- REST Assured: cliente HTTP com uma DSL fluente e assertions
+             prontas para JSON (given().when().then()...) - dispara as
+             chamadas contra o Tomcat embutido subido pelo @SpringBootTest
+             (porta aleatória, ver SpringIntegrationConfig). Sem gerenciamento
+             de versão pelo Spring Boot (não é uma biblioteca "oficial" do
+             ecossistema Spring), por isso a versão vem explícita aqui. -->
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>6.0.1</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers: sobe um MySQL real, descartável, em um container
+             Docker, só para a execução dos testes - a mesma imagem usada em
+             desenvolvimento local (ver README, "mysql:8.4"), garantindo que
+             os testes rodem contra o MESMO motor de banco de produção (as
+             triggers de auditoria em SQL nativo do MySQL, por exemplo, não
+             rodariam num banco em memória como H2 - motivo pelo qual o
+             projeto nunca incluiu H2 como dependência).
+
+             CORREÇÃO (18/09/2026, primeira execução real do usuário):
+             a suposição original era que o "spring-boot-dependencies" (pai
+             deste pom) cobriria a versão sozinho, sem precisar declará-la
+             aqui - só que isso se mostrou ERRADO na prática: o Spring Boot
+             gerencia a PROPERTY "testcontainers.version" (usada por ele
+             mesmo internamente, ver property acima), mas não tem uma
+             entrada de <dependencyManagement> para TODO módulo específico
+             do Testcontainers (o "mysql" e o "junit-jupiter" não estavam
+             cobertos) - resultado: "'dependencies.dependency.version' ...
+             is missing". Corrigido usando a property acima explicitamente.
+
+             Também descobrimos, pesquisando o motivo do erro, que o
+             Testcontainers 2.x (lançado em 2026, é a versão atual - a que
+             o Spring Boot 4.1.1 já usa) renomeou os artefatos dos módulos
+             de banco de dados, passando todos a usar o prefixo
+             "testcontainers-" (era "mysql", agora é "testcontainers-mysql";
+             o pacote Java também mudou, de
+             "org.testcontainers.containers.MySQLContainer" para
+             "org.testcontainers.mysql.MySQLContainer" - ver
+             SpringIntegrationConfig.java) - e a dependência "junit-jupiter"
+             foi removida por não ser mais necessária: ela só seria precisa
+             para usar as anotações "@Testcontainers"/"@Container" da JUnit
+             5, que este projeto NÃO usa (o container é gerenciado
+             manualmente, em bloco "static" - ver SpringIntegrationConfig,
+             padrão "Singleton Container"). -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mysql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
-    <!--
-        Nota de evolução: os testes deste projeto são testes de unidade "puros"
-        (services com dependências mockadas via Mockito, sem subir contexto
-        Spring nem banco). Não incluímos H2 porque as triggers de auditoria
-        (T_*_AU) são escritas em SQL nativo do MySQL e não rodam em H2 - para
-        testes de integração reais no futuro, o caminho recomendado é usar
-        Testcontainers com uma imagem oficial do MySQL (ver README, seção
-        "Próximos passos / outros frameworks").
-    -->
 
 
     <build>
@@ -212,6 +339,19 @@
                  quebra o build. A versão 0.8.14 passou a suportar oficialmente
                  Java 25; usamos aqui a 0.8.15 (mais recente estável), que já
                  suporta oficialmente até o Java 26.
+
+                 ESCOPO (atualizado em 18/09/2026, após a chegada dos testes
+                 funcionais/E2E com Cucumber - ver maven-failsafe-plugin mais
+                 abaixo): este gate ("check") continua medindo SÓ a cobertura
+                 dos testes de UNIDADE (fase "test"/surefire), de propósito -
+                 os cenários de Cucumber rodam depois, na fase
+                 "integration-test"/"verify" (failsafe), e o goal "report"
+                 acima já terminou antes disso. Agregar as duas fontes de
+                 cobertura num único relatório (via "jacoco:report-aggregate")
+                 é possível, mas foi deixado como evolução futura, para não
+                 misturar dois objetivos diferentes de teste numa métrica só
+                 antes de a suíte de Cucumber amadurecer - ver doc de
+                 decisões do projeto.
 
                  EXCLUSÕES DA MÉTRICA (sessão de 17/09/2026): nem todo código
                  "conta" igual para uma meta de cobertura. Excluímos da conta
@@ -421,6 +561,66 @@
                         <phase>verify</phase>
                         <goals>
                             <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- maven-failsafe-plugin: o "primo" do maven-surefire-plugin
+                 (que já roda os testes de unidade, na fase "test", de forma
+                 implícita/automática - não aparece aqui no pom porque nunca
+                 precisou de configuração customizada). A DIFERENÇA entre os
+                 dois não é técnica (os dois sabem rodar testes JUnit
+                 Platform) - é de FASE do ciclo de vida e de CONVENÇÃO DE
+                 NOME:
+                   - surefire roda na fase "test" e procura por
+                     "**/*Test.java" (ex: PurchaseServiceTest);
+                   - failsafe roda nas fases "integration-test"/"verify" e
+                     procura por "**/*IT.java" (ex: RunCucumberIT, ver
+                     src/test/java/.../cucumber/RunCucumberIT.java).
+
+                 POR QUE SEPARAR (sessão de 18/09/2026, ver doc de decisões
+                 do projeto, "Testes funcionais/E2E"): os testes de Cucumber
+                 sobem a aplicação Spring Boot INTEIRA + um container Docker
+                 de MySQL via Testcontainers - são ORDENS DE MAGNITUDE mais
+                 lentos que os testes de unidade (segundos por cenário, não
+                 milissegundos) e dependem de Docker estar disponível. Se
+                 eles rodassem junto com os de unidade na fase "test", TODO
+                 "mvn test" (o comando mais básico, rodado a cada salvamento/
+                 build local) ficaria lento e passaria a exigir Docker
+                 sempre - um custo alto para o dia a dia de quem só quer
+                 rodar os testes de unidade rapidamente. Com failsafe, um
+                 "mvn test" continua rápido e sem Docker; só "mvn verify"
+                 (o que o pipeline de CI já usa, ver .github/workflows/ci.yml)
+                 desce até a fase "integration-test" e roda os cenários de
+                 Cucumber - o gate completo (unidade + funcional/E2E +
+                 qualidade estática) continua sendo UM comando só.
+
+                 PRÉ-REQUISITO: Docker precisa estar disponível em quem
+                 executa "mvn verify" (localmente, via Docker Desktop, ou no
+                 GitHub Actions, que já vem com Docker pré-instalado em
+                 "ubuntu-latest" - nenhuma mudança adicional foi necessária
+                 em ci.yml por causa disso).
+
+                 Sem versão explícita: gerenciada pelo BOM do
+                 "spring-boot-dependencies" (pai deste pom), mesmo padrão já
+                 usado pelo spring-boot-maven-plugin logo no topo desta
+                 seção <build>. Os goals "integration-test" e "verify" juntos
+                 são o padrão documentado do próprio plugin: o primeiro RODA
+                 os testes (sem falhar o build ainda, mesmo se algum cenário
+                 falhar), o segundo CONFERE o resultado e falha o build se
+                 necessário - two-step de propósito, para permitir um hook de
+                 "teardown" entre os dois (não usado aqui, mas é o motivo da
+                 API ser assim). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>cucumber-integration-tests</id>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
                         </goals>
                     </execution>
                 </executions>
