@@ -12,8 +12,12 @@
       "document": [
         { "type": "CPF", "description": null, "value": "11122233344", "country": "BR" }
       ],
-      "address": [],
-      "phone": []
+      "address": [
+        { "type": "RESIDENCIAL", "description": "CASA", "addressName": "Rua Cucumber", "number": "100", "complement": null, "zipCode": "20000000", "country": "BR" }
+      ],
+      "phone": [
+        { "number": "5521999999999" }
+      ]
     }
   ],
   "product": [
