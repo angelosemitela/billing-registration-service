@@ -1086,12 +1086,65 @@ via um workflow em `.github/workflows/ci.yml`.
   repositório.
 
 **O que o workflow faz:** configura o JDK 25 (Temurin), restaura o cache do
-`~/.m2` entre execuções, e roda `mvn test`. Isso já é suficiente para
-disparar o gate de cobertura, porque o goal `jacoco:check` está amarrado à
-fase `test` do Maven (ver `pom.xml`) - não é preciso avançar até
-`verify`/`package`. O relatório HTML/CSV do JaCoCo é publicado como
-artefato do run, então dá para abrir a cobertura linha a linha direto pela
-aba "Actions" do GitHub, sem rodar nada localmente.
+`~/.m2` entre execuções, e roda `mvn verify` (até 18/09/2026 era só
+`mvn test` - ver "Qualidade de código automatizada" logo abaixo para o
+motivo de ter avançado até `verify`). O relatório HTML/CSV do JaCoCo (e o
+XML do SpotBugs) são publicados como artefato do run, então dá para abrir
+a cobertura linha a linha - ou ver exatamente qual achado do SpotBugs
+disparou - direto pela aba "Actions" do GitHub, sem rodar nada localmente.
+
+### Qualidade de código automatizada (Checkstyle + SpotBugs)
+
+Até aqui, os warnings de qualidade de código (import não usado, bloco sem
+chaves, parâmetro sempre com o mesmo valor etc.) só existiam dentro do
+IntelliJ, na máquina de quem estava codando - nada no pipeline impedia um
+PR com warning de ser mesclado (foi exatamente por isso que duas "levas"
+de warnings precisaram ser limpas manualmente ao longo desta sessão, ver
+doc de decisões do projeto). Dois plugins novos no `pom.xml` transformam
+isso em um GATE automático:
+
+- **[Checkstyle](https://checkstyle.org/)** - análise estática do
+  CÓDIGO-FONTE (não precisa compilar nada). Roda na fase `validate` (a
+  primeira do Maven), então um problema aqui é descoberto antes até de
+  compilar. Ruleset customizado em `checkstyle.xml`, na raiz do projeto -
+  **deliberadamente enxuto**: em vez de importar um ruleset "de prateleira"
+  (`sun_checks.xml`/`google_checks.xml`, com 100+ regras, muitas de
+  formatação rígida como limite de 80/100 colunas ou Javadoc obrigatório em
+  todo método público), listamos só checks de alto valor/baixo ruído -
+  bugs estruturais reais (import não usado, `equals`/`hashCode`
+  desalinhados, bloco sem chaves), não estilo. Ver os comentários dentro de
+  `checkstyle.xml` para o racional de cada regra escolhida.
+- **[SpotBugs](https://spotbugs.github.io/)** (sucessor do antigo
+  FindBugs) - análise estática do BYTECODE compilado, por isso só roda na
+  fase `verify` (depois de `compile`/`test`/`package`). Detecta uma
+  categoria diferente de problema: padrões de bug REAIS (possível NPE,
+  comparação de objetos com `==`, recurso não fechado), não estilo.
+  Configurado com `threshold=High` (só os achados de maior confiança) em
+  vez do padrão `Medium` - evita travar o pipeline com uma enxurrada de
+  achados de baixa prioridade (vários deles falsos positivos comuns em
+  código com Lombok/JPA/records, como `EI_EXPOSE_REP`) logo no primeiro
+  dia da ferramenta no projeto.
+
+**Por que os limiares começam "frouxos" em vez de já usar o padrão
+rígido de cada ferramenta**: mesma filosofia de *ratchet* já usada no piso
+de cobertura do JaCoCo (ver seção "Testes" acima, e o comentário no
+`pom.xml`) - introduzir uma ferramenta de análise estática num projeto que
+já existe com o limiar mais permissivo primeiro, medir o resultado real, e
+ir apertando aos poucos, é mais sustentável do que importar a configuração
+mais rígida do mercado de cara e travar todo o pipeline até o projeto
+inteiro se adequar.
+
+> **Nota de transparência**: como o ambiente onde esta funcionalidade foi
+> implementada não tem acesso ao Maven Central (só o usuário consegue
+> rodar `mvn verify` de verdade, na própria máquina), o ruleset do
+> Checkstyle foi calibrado por inspeção manual do código-fonte (nenhuma
+> linha hoje ultrapassa 167 caracteres, por exemplo, daí o limite de 180) -
+> mas nem Checkstyle nem SpotBugs puderam ser executados de fato antes de
+> entregar. É esperado (e normal, ao introduzir análise estática pela
+> primeira vez num projeto) que a primeira rodada real aponte 1-2 ajustes
+> pontuais - mesmo padrão de colaboração já usado neste projeto para toda
+> mudança de ferramenta de build (JaCoCo, warnings do IntelliJ etc.): você
+> roda localmente, compartilha o log se algo pintar, e ajustamos juntos.
 
 **Por que não precisa subir um MySQL no pipeline:** toda a suíte atual é de
 testes unitários com Mockito (repositórios e dependências mockados, sem
@@ -1110,9 +1163,11 @@ mudança seria só na suíte de testes, não no workflow).
 | Motor de CI/CD | GitHub Actions | GitLab CI/CD, Jenkins, CircleCI, Azure Pipelines, Bitbucket Pipelines |
 | Build reprodutível | `mvn` da imagem do runner | Maven Wrapper (`mvnw`/`mvnw.cmd`) versionado no repo, fixando a versão exata do Maven para CI e para qualquer dev que clone o projeto |
 | Visualização de cobertura | Artefato de CI (HTML/CSV do JaCoCo) | Codecov/Coveralls (upload automático do relatório, badge de % no README, comentário automático no PR com o diff de cobertura) |
-| Gate de qualidade | `jacoco:check` (limiar fixo, ver seção acima) | SonarQube/SonarCloud (gate de "cobertura no código novo", análise de duplicação, code smells, vulnerabilidades) |
+| Gate de qualidade estática | Checkstyle + SpotBugs (ver seção acima) | **SonarQube/SonarCloud** - mais completo que os dois juntos (duplicação de código, gate de "cobertura só no código NOVO/alterado de um PR" em vez do projeto inteiro, detecção de vulnerabilidades, dashboard visual) e gratuito para repositórios públicos, mas exige criar conta em sonarcloud.io e configurar um token como secret do repositório - próximo passo natural depois de validar Checkstyle/SpotBugs |
+| Segurança da pipeline | `permissions` padrão (herdadas), actions fixadas por major version | `permissions: contents: read` explícito no workflow (princípio do menor privilégio), CodeQL (SAST nativo do GitHub, grátis p/ repositório público), Dependabot (atualiza dependências Maven E as próprias GitHub Actions, com alerta de CVE) - tema em alta desde os ataques de supply-chain via actions comprometidas em 2025 |
+| Feedback no PR | Log bruto do `mvn verify` | Anotar falhas de teste direto no diff do PR (ex: `dorny/test-reporter`), resumo de cobertura/qualidade direto na tela do Actions (`$GITHUB_STEP_SUMMARY`), `concurrency` (cancela automaticamente um run anterior quando chega um push novo no mesmo PR, economizando minutos de CI) |
 | Testes de integração em CI | Nenhum ainda (só unitários) | Testcontainers + serviço de MySQL real dentro do próprio job, ou `services:` do GitHub Actions apontando pra uma imagem `mysql` |
-| Empacotamento | Nenhum (só `test`) | Job adicional de `mvn package` + publicação da imagem Docker (`docker build`/`docker push`) em um registry, como próximo passo rumo a deploy contínuo (CD) |
+| Empacotamento/deploy | `package` gera o JAR, mas não publica em lugar nenhum | Publicação da imagem Docker (`docker build`/`docker push`) em um registry, como próximo passo rumo a deploy contínuo (CD) |
 
 ## Evoluções futuras / outros frameworks para estudo
 

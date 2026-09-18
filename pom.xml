@@ -309,6 +309,122 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- Checkstyle: análise ESTÁTICA do código-fonte (não precisa
+                 compilar nada - lê o .java como texto/AST), buscando bugs
+                 comuns e problemas estruturais (import não usado, bloco
+                 sem chaves, equals/hashCode desalinhados etc.) - ver
+                 checkstyle.xml, na raiz do projeto, para o ruleset completo
+                 e o racional de cada regra escolhida.
+
+                 POR QUE ISSO É NOVO NO CI (sessão de 18/09/2026): até aqui,
+                 esse tipo de warning só existia dentro do IntelliJ, na
+                 máquina de quem estava codando - nada impedia um PR com
+                 warning de entrar (foi exatamente por isso que precisamos
+                 de duas "levas" manuais de limpeza de warnings nesta
+                 sessão, ver doc de decisões do projeto). Colocar o check no
+                 pipeline transforma isso de "revisão manual, às vezes
+                 esquecida" em um GATE automático, que roda igual pra
+                 qualquer pessoa que abrir um PR.
+
+                 Goal "check" preso à fase "validate" (a PRIMEIRA do ciclo
+                 de vida do Maven) - roda antes até de compilar, então um
+                 problema aqui é descoberto (e o build falha) o mais cedo e
+                 barato possível, sem gastar tempo compilando/testando um
+                 código que já sabemos que tem um problema estrutural.
+
+                 VERSÃO DO CHECKSTYLE: o maven-checkstyle-plugin 3.6.0 traz,
+                 por padrão, o Checkstyle 9.3 (de 2022) - versão antiga o
+                 bastante para não ter garantia de entender toda a sintaxe
+                 mais nova do Java 25 usado aqui. Sobrescrevemos para a
+                 14.1.0 (mais recente estável) via <dependencies> do
+                 plugin, o mecanismo oficialmente documentado para isso -
+                 mesmo tipo de cuidado que já tivemos com a versão do JaCoCo
+                 (ver comentário do jacoco-maven-plugin acima), só que aqui
+                 de forma preventiva, sem termos batido no erro ainda. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>14.1.0</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configLocation>checkstyle.xml</configLocation>
+                    <!-- Sem "encoding"/"inputEncoding" explícito aqui de
+                         propósito: o parâmetro certo do plugin chama-se
+                         "inputEncoding" (não "encoding" - warning "Parameter
+                         'encoding' is unknown" visto na 1ª execução real),
+                         e ele já usa ${project.build.sourceEncoding} como
+                         padrão, que este pom.xml já define como UTF-8 (ver
+                         <properties> no topo) - declarar de novo aqui seria
+                         redundante. -->
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                    <!-- Analisa main E test - o mesmo padrão de cuidado
+                         (imports, chaves, etc.) vale pro código de teste. -->
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- SpotBugs (sucessor do antigo FindBugs): análise estática de
+                 BYTECODE (não de texto-fonte, como o Checkstyle acima) -
+                 por isso só pode rodar depois de compilar, e detecta uma
+                 categoria diferente de problema: padrões de bug REAIS
+                 (possível NPE, recurso que não é fechado, comparação de
+                 objetos com "==" em vez de equals, etc.), não estilo de
+                 código.
+
+                 THRESHOLD "High" (só os achados de maior confiança) em vez
+                 do padrão "Medium": a mesma filosofia de "ratchet" já usada
+                 no piso de cobertura do JaCoCo (ver comentário acima) -
+                 introduzir a ferramenta num projeto já existente com um
+                 limiar mais permissivo primeiro, e apertar aos poucos,
+                 evita travar o pipeline com uma enxurrada de achados de
+                 baixa prioridade (muitos deles falsos positivos comuns em
+                 código com Lombok/JPA/records, como "EI_EXPOSE_REP" - getter
+                 que devolve a referência interna de um campo mutável) logo
+                 no primeiro dia. Effort "Max" (análise mais profunda
+                 possível) porque o projeto ainda é pequeno - o custo extra
+                 de tempo de build é desprezível.
+
+                 Goal "check" preso à fase "verify" (a ÚLTIMA do ciclo de
+                 vida usado aqui) - só roda depois de "test" (que já inclui
+                 o gate do JaCoCo) e "package" (que já gera o JAR), então um
+                 problema do SpotBugs nunca impede de saber se os TESTES
+                 passaram primeiro. -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.10.4.1</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>High</threshold>
+                    <failOnError>true</failOnError>
+                    <xmlOutput>true</xmlOutput>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

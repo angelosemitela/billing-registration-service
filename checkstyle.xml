@@ -1,0 +1,117 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+    Ruleset customizado do Checkstyle para este projeto - ver README.md,
+    seção "Integração contínua (CI) com GitHub Actions" → "Qualidade de
+    código automatizada", para o racional completo de por que este arquivo
+    existe e por que o conjunto de regras é deliberadamente ENXUTO.
+
+    Resumo da decisão: em vez de importar um ruleset "de prateleira" pronto
+    (sun_checks.xml ou google_checks.xml, que vêm com 100+ regras, muitas
+    bem rígidas de formatação - ordem de import, Javadoc obrigatório em
+    todo método público, limite de linha em 80/100 colunas etc.), este
+    arquivo lista só checks de alto valor/baixo ruído: bugs reais e
+    comuns (equals/hashCode desalinhados, bloco sem chaves, import não
+    usado) - não estilo de formatação. O objetivo é começar com um gate
+    que TODO mundo consegue passar de cara sem reescrever o projeto
+    inteiro, e ir apertando aos poucos (mesma filosofia de "ratchet" já
+    usada no piso de cobertura do JaCoCo, ver pom.xml) - não travar o
+    pipeline com centenas de violações de estilo no primeiro dia.
+
+    Documentação completa de cada módulo: https://checkstyle.org/checks.html
+-->
+<module name="Checker">
+    <property name="charset" value="UTF-8"/>
+
+    <!-- Falha o build em qualquer violação (default do próprio Checkstyle
+         já é "error", mas deixamos explícito aqui pela didática). -->
+    <property name="severity" value="error"/>
+
+    <!-- Limite de linha GENEROSO (180) - o objetivo é pegar linha
+         absurdamente comprida (sinal de código/comentário que precisa ser
+         quebrado), não impor um limite apertado que brigaria com os
+         comentários didáticos em português deste projeto (a maior linha
+         hoje, em código de produção, tem 167 caracteres). -->
+    <module name="LineLength">
+        <property name="max" value="180"/>
+        <!-- Não se aplica a uma URL sozinha numa linha de comentário/javadoc
+             (ex: um link de documentação) - quebrar isso não melhora a
+             legibilidade. -->
+        <property name="ignorePattern" value="^\s*\*?\s*(https?://\S+|@link\s+\S+)\s*$"/>
+    </module>
+
+    <!-- Exceção pontual, achada na primeira execução real deste ruleset
+         (18/09/2026): "HideUtilityClassConstructor" (ver módulo abaixo)
+         considera "classe utilitária" QUALQUER classe cujos métodos sejam
+         todos estáticos - o que inclui, por engano, a classe de bootstrap
+         do Spring Boot (BillingApplication só tem um `public static void
+         main`). Só que BillingApplication NÃO é uma classe utilitária de
+         verdade: ela carrega @SpringBootApplication/@Configuration, e o
+         próprio Spring PRECISA conseguir instanciá-la via reflection para
+         registrá-la como bean - dar um construtor privado pra "corrigir"
+         o warning na verdade QUEBRARIA a aplicação na inicialização, o
+         que seria bem pior que o warning. Suprimimos só esta combinação
+         específica (arquivo + regra), em vez de desativar a regra inteira
+         (que continua útil para MaskingUtil/AssetIdFormatter/etc. - ver
+         módulo abaixo) ou de inventar uma exceção genérica que abriria
+         brecha demais. -->
+    <module name="SuppressionSingleFilter">
+        <property name="checks" value="HideUtilityClassConstructor"/>
+        <property name="files" value="BillingApplication\.java"/>
+    </module>
+
+    <module name="TreeWalker">
+        <!-- ================= Imports ================= -->
+        <!-- Import declarado mas nunca usado no arquivo - "lixo" deixado
+             para trás depois de um refatoro (foi exatamente o tipo de
+             warning do IntelliJ que já corrigimos manualmente mais de uma
+             vez nesta sessão - ver doc de decisões do projeto; agora o CI
+             pega isso automaticamente, em vez de depender de revisão
+             manual). -->
+        <module name="UnusedImports"/>
+        <!-- Mesmo import repetido, ou import de uma classe do próprio
+             pacote (desnecessário - já está no escopo). -->
+        <module name="RedundantImport"/>
+        <!-- "import com.aalvarenga.billing.dto.response.*;" em vez de
+             listar as classes usadas - dificulta saber, só olhando os
+             imports, de onde cada símbolo usado no arquivo realmente vem. -->
+        <module name="AvoidStarImport"/>
+
+        <!-- ================= Estrutura de arquivo/classe ================= -->
+        <!-- O nome do arquivo tem que bater com o da classe pública - o
+             próprio javac já exige isso para compilar, então este check
+             nunca deveria disparar aqui; existe só como rede de segurança. -->
+        <module name="OuterTypeFilename"/>
+        <!-- No máximo uma classe/interface/enum de nível superior por
+             arquivo - mantém "um arquivo, um conceito", facilita achar
+             qualquer tipo pelo nome do arquivo. -->
+        <module name="OneTopLevelClass"/>
+        <!-- Uma classe utilitária (só métodos estáticos, ex: MaskingUtil,
+             AssetIdFormatter) não pode ter um construtor público implícito -
+             tem que declarar um construtor privado, prevenindo
+             `new MaskingUtil()` sem sentido nenhum (todas as classes
+             utilitárias deste projeto já seguem esse padrão). -->
+        <module name="HideUtilityClassConstructor"/>
+
+        <!-- ================= Bugs comuns / legibilidade ================= -->
+        <!-- `if (x) doAlgo();` sem chaves - fácil de, numa edição futura,
+             adicionar uma segunda linha "dentro" do if por engano (ela na
+             verdade roda sempre, fora do if) - clássica fonte de bug sutil. -->
+        <module name="NeedBraces"/>
+        <!-- Sobrescrever equals() sem hashCode() (ou vice-versa) quebra o
+             contrato do Java (ex: a classe passa a se comportar errado
+             dentro de um HashMap/HashSet). Não se aplica às entidades deste
+             projeto, que usam @EqualsAndHashCode do Lombok (gerado em
+             tempo de compilação, nunca escrito manualmente) - este check
+             cobre só o caso de alguém escrever um dos dois métodos à mão
+             no futuro e esquecer do outro. -->
+        <module name="EqualsHashCode"/>
+        <!-- Ordem convencional dos modificadores (ex: "public static
+             final", nunca "static public final") - puramente sobre
+             consistência de leitura entre arquivos. -->
+        <module name="ModifierOrder"/>
+    </module>
+</module>

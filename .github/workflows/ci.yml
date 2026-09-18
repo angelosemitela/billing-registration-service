@@ -29,7 +29,7 @@ on:
 
 jobs:
   build-and-test:
-    name: Build, testes e cobertura (JaCoCo)
+    name: Build, testes, cobertura (JaCoCo) e qualidade estática (Checkstyle/SpotBugs)
     runs-on: ubuntu-latest
 
     steps:
@@ -46,11 +46,19 @@ jobs:
           # Mockito etc.) a cada run, deixando o pipeline bem mais rápido.
           cache: 'maven'
 
-      # "mvn test" já é suficiente aqui - o projeto liga o goal
-      # "jacoco:check" (o gate de cobertura mínima) à fase "test" do Maven
-      # (ver pom.xml), então rodar "test" já executa os testes E falha o
-      # build se a cobertura cair abaixo do mínimo combinado, sem precisar
-      # avançar até "verify"/"package".
+      # "mvn verify" (sessão de 18/09/2026 - antes era só "mvn test") passa
+      # por TODAS as fases do ciclo de vida do Maven até "verify", nesta
+      # ordem, cada uma um gate diferente:
+      #   1. validate - Checkstyle (checkstyle.xml): análise estática do
+      #      CÓDIGO-FONTE (bugs estruturais, import não usado etc.) - roda
+      #      primeiro, antes até de compilar, então falha rápido e barato.
+      #   2. test - os testes de unidade + o gate de cobertura mínima do
+      #      JaCoCo ("jacoco:check", ver pom.xml) - o que já rodava antes.
+      #   3. package - gera o JAR executável (spring-boot-maven-plugin).
+      #   4. verify - SpotBugs: análise estática do BYTECODE compilado
+      #      (padrões de bug reais, ex: possível NPE) - por isso só pode
+      #      rodar depois de compilar/empacotar.
+      # Ver pom.xml para o racional completo de cada plugin/versão.
       #
       # "-B" (batch mode) desliga prompts interativos do Maven, que não
       # fazem sentido em CI. Nenhum banco de dados é necessário aqui: toda
@@ -63,8 +71,8 @@ jobs:
       # possível melhoria futura (fixaria a versão exata do Maven usada em
       # CI e por qualquer dev que clone o repositório, independente do que
       # estiver instalado na máquina).
-      - name: Rodar testes + gate de cobertura (mvn test)
-        run: mvn -B test
+      - name: Build completo + testes + cobertura + qualidade estática (mvn verify)
+        run: mvn -B verify
 
       # Sobe o relatório HTML/CSV do JaCoCo como artefato do run, para dar
       # uma olhada na cobertura linha a linha direto pela interface do
@@ -76,3 +84,19 @@ jobs:
           name: jacoco-report
           path: target/site/jacoco/
           retention-days: 15
+
+      # "if: always()" aqui é o que importa de verdade: sem isso, o step de
+      # upload seria PULADO justamente no caso mais útil - quando o
+      # "mvn verify" acima falhou por causa do SpotBugs, o job para no meio
+      # e os steps seguintes não rodam por padrão. Com "always()", mesmo um
+      # SpotBugs vermelho ainda deixa o XML (com o detalhe de CADA achado)
+      # disponível pra baixar e investigar, sem precisar reproduzir
+      # localmente só para ver o que disparou.
+      - name: Publicar relatório de análise estática (SpotBugs) como artefato
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spotbugs-report
+          path: target/spotbugsXml.xml
+          retention-days: 15
+          if-no-files-found: ignore
