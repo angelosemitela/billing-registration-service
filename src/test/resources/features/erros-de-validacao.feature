@@ -74,16 +74,19 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | product[0].discountValue         | (vazio)           | 400            | product.discountValue                 |
       | product[0].discountValue         | -10               | 400            | product.discountValue                 |
       | product[0].discountValue         | 999999            | 400            | discountValue cannot be greater       |
+      | product[0].isTrial               | true              | 400            | product.trialDays                     |
       | product[0].currency              | (vazio)           | 400            | product.currency                      |
       | product[0].currency              | XYZ               | 400            | Unknown currency code                 |
       | payment[0].method                | (vazio)           | 400            | PaymentMethod                         |
       | payment[0].method                | XYZ               | 400            | PaymentMethod                         |
       | payment[0].isDefault             | (ausente)         | 400            | isDefault                             |
+      | payment[0].isDefault             | false             | 400            | isDefault                             |
       | payment[0].installments          | (vazio)           | 400            | installments                          |
       | payment[0].installments          | XYZ               | 400            | Integer                               |
       | payment[0].installments          | -1                | 400            | installments                          |
       | payment[0].installments          | 0                 | 400            | installments                          |
       | payment[0].installments          | 13                | 400            | installments                          |
+      | payment[0].installments          | 2                 | 400            | installments                          |
       | payment[0].token[0].name         | (vazio)           | 400            | payment.token.name                    |
       | payment[0].token[0].id           | (vazio)           | 400            | payment.token.id                      |
       | payment[0].token[0].gateway      | (vazio)           | 400            | payment.token.gateway                 |
