@@ -6,6 +6,7 @@ import com.aalvarenga.billing.dto.request.PaymentRequest;
 import com.aalvarenga.billing.dto.request.ProductRequest;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
 import com.aalvarenga.billing.dto.request.TaxRequest;
+import com.aalvarenga.billing.dto.request.TokenRequest;
 import com.aalvarenga.billing.enums.PaymentMethod;
 import com.aalvarenga.billing.enums.ProductType;
 import com.aalvarenga.billing.exception.BusinessException;
@@ -123,6 +124,42 @@ class PurchaseValidationServiceTest {
         assertThatThrownBy(() -> service.validate(request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("sum of taxes does not match");
+    }
+
+    // ------------------------------------------------------------------
+    // Campos acrescentados em 19/09/2026 (ver README, seção "Evoluções
+    // pedidas"): billing.tax.name (bug corrigido) e payment.token.expirationDt
+    // (melhoria - antigo expirationDate).
+    // ------------------------------------------------------------------
+
+    @Test
+    void rejectsWhenBillingTaxNameIsBlank() {
+        when(currencyDomainRepository.existsById(anyString())).thenReturn(true);
+
+        BillingRequest billing = new BillingRequest(
+                "1", new BigDecimal("10.00"), BigDecimal.ZERO, new BigDecimal("2.00"), new BigDecimal("12.00"),
+                "BRL", "TX-1", 1, "CIELO", PaymentMethod.PIX,
+                List.of(new TaxRequest(null, new BigDecimal("2.00"))));
+
+        PurchaseRequest request = baseRequestBuilder(String.valueOf(pastEpoch()), List.of(billing));
+
+        assertThatThrownBy(() -> service.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("billing.tax.name is required");
+    }
+
+    @Test
+    void rejectsWhenTokenExpirationDtIsInThePast() {
+        when(currencyDomainRepository.existsById(anyString())).thenReturn(true);
+
+        TokenRequest expiredToken = new TokenRequest("ACCESS_TOKEN", "abc-123", "INTERNAL", "1");
+        PaymentRequest payment = new PaymentRequest(
+                PaymentMethod.PIX, null, null, null, null, true, 1, List.of(expiredToken), null);
+        PurchaseRequest request = requestWithPayment(payment);
+
+        assertThatThrownBy(() -> service.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("expirationDt cannot be in the past");
     }
 
     @Test

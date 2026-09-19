@@ -68,9 +68,9 @@ public class PaymentService {
             return;
         }
         for (TokenRequest token : tokens) {
-            Long expirationDt = (token.expirationDate() == null || token.expirationDate().isBlank())
+            Long expirationDt = (token.expirationDt() == null || token.expirationDt().isBlank())
                     ? null
-                    : Long.parseLong(token.expirationDate());
+                    : Long.parseLong(token.expirationDt());
 
             paymentTokenRepository.save(PaymentTokenEntity.builder()
                     .paymentId(paymentId)

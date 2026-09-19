@@ -87,6 +87,7 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | payment[0].token[0].name         | (vazio)           | 400            | payment.token.name                    |
       | payment[0].token[0].id           | (vazio)           | 400            | payment.token.id                      |
       | payment[0].token[0].gateway      | (vazio)           | 400            | payment.token.gateway                 |
+      | payment[0].token[0].expirationDt | 1                 | 400            | expirationDt cannot be in the past    |
       | billing[0].codeId                | (vazio)           | 400            | billing.codeId                        |
       | billing[0].productValue          | (vazio)           | 400            | billing.productValue                  |
       | billing[0].productValue          | -1                | 400            | billing.productValue                  |
@@ -112,3 +113,4 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | billing[0].paymentMethod         | (vazio)           | 400            | PaymentMethod                         |
       | billing[0].paymentMethod         | XYZ               | 400            | PaymentMethod                         |
       | billing[0].tax[0].value          | 0                 | 412            | sum of taxes does not match           |
+      | billing[0].tax[0].name           | (vazio)           | 400            | billing.tax.name                      |

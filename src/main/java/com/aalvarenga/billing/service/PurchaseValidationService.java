@@ -8,6 +8,7 @@ import com.aalvarenga.billing.dto.request.PaymentRequest;
 import com.aalvarenga.billing.dto.request.PhoneRequest;
 import com.aalvarenga.billing.dto.request.ProductRequest;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
+import com.aalvarenga.billing.dto.request.TaxRequest;
 import com.aalvarenga.billing.dto.request.TokenRequest;
 import com.aalvarenga.billing.entity.AccountEntity;
 import com.aalvarenga.billing.enums.PaymentMethod;
@@ -21,6 +22,7 @@ import com.aalvarenga.billing.repository.CurrencyDomainRepository;
 import com.aalvarenga.billing.repository.LogRepository;
 import com.aalvarenga.billing.repository.PaymentTokenRepository;
 import com.aalvarenga.billing.util.CardExpirationUtil;
+import com.aalvarenga.billing.util.EpochDateUtil;
 import com.aalvarenga.billing.util.MoneyUtil;
 import com.aalvarenga.billing.util.PurchaseLookupUtils;
 import lombok.RequiredArgsConstructor;
@@ -344,7 +346,7 @@ public class PurchaseValidationService {
     private void validateExpiration(String expiration) {
         YearMonth yearMonth = CardExpirationUtil.parse(expiration)
                 .orElseThrow(() -> BusinessException.badRequest("payment.expiration must be in MM/YY format with a valid month (e.g. 03/31)"));
-        if (CardExpirationUtil.isExpired(yearMonth, LocalDate.now(com.aalvarenga.billing.util.EpochDateUtil.BUSINESS_ZONE))) {
+        if (CardExpirationUtil.isExpired(yearMonth, LocalDate.now(EpochDateUtil.BUSINESS_ZONE))) {
             throw BusinessException.badRequest("payment.expiration refers to an already expired card");
         }
     }
@@ -376,17 +378,23 @@ public class PurchaseValidationService {
             requireNotBlank(token.name(), "payment.token.name");
             requireNotBlank(token.id(), "payment.token.id");
             requireNotBlank(token.gateway(), "payment.token.gateway");
-            if (token.expirationDate() != null && !token.expirationDate().isBlank()) {
+            if (token.expirationDt() != null && !token.expirationDt().isBlank()) {
+                long expirationEpochMillis;
                 try {
-                    Long.parseLong(token.expirationDate());
+                    expirationEpochMillis = Long.parseLong(token.expirationDt());
                 } catch (NumberFormatException ex) {
-                    throw BusinessException.badRequest("payment.token.expirationDate must be a valid epoch milliseconds value");
+                    throw BusinessException.badRequest("payment.token.expirationDt must be a valid epoch milliseconds value");
                 }
-                // NOTA (ver README/ANALISE.md): o enunciado reaproveita, aqui, o mesmo texto
-                // usado para a checagem de "não pode estar no futuro" de transactionDate, o
-                // que não faria sentido para uma data de EXPIRAÇÃO de token. Interpretamos
-                // isso como um erro de cópia no enunciado original e não aplicamos essa
-                // restrição a este campo.
+                // Regra funcional acrescentada em 19/09/2026 (ver README/ANALISE.md,
+                // seção "Evoluções pedidas"): expirationDt é OPCIONAL, mas quando
+                // informado não pode estar no passado - um token/método de pagamento
+                // não pode entrar na base já expirado. Isso substitui a nota antiga
+                // deste método, que tinha decidido NÃO aplicar nenhuma restrição
+                // temporal aqui por interpretar o enunciado original como um erro de
+                // cópia (ver histórico no doc de decisões do projeto).
+                if (expirationEpochMillis < EpochDateUtil.nowMillis()) {
+                    throw BusinessException.badRequest("payment.token.expirationDt cannot be in the past");
+                }
             }
             if (paymentTokenRepository.existsByToken(token.id())) {
                 throw BusinessException.conflict("payment.token.id is already registered: " + token.id());
@@ -411,6 +419,19 @@ public class PurchaseValidationService {
             requireNonNegative(billing.discountValue(), "billing.discountValue");
             requireNonNegative(billing.taxValue(), "billing.taxValue");
             requireNonNegative(billing.chargedValue(), "billing.chargedValue");
+
+            // Bug corrigido em 19/09/2026 (ver README/ANALISE.md): "billing.tax.name"
+            // não era validado aqui - um nome nulo só era barrado depois, na hora de
+            // GRAVAR no banco (a coluna T_BILL_TAX.NAME é NOT NULL), o que gerava um
+            // HTTP 500 (DataIntegrityViolationException sem tratamento dedicado) em
+            // vez de um 400 amigável. Validar aqui, ANTES da persistência, é a mesma
+            // filosofia "fail fast" já aplicada a todos os outros campos obrigatórios
+            // desta classe.
+            if (billing.tax() != null) {
+                for (TaxRequest tax : billing.tax()) {
+                    requireNotBlank(tax.name(), "billing.tax.name");
+                }
+            }
 
             BigDecimal taxSum = billing.tax() == null ? BigDecimal.ZERO
                     : billing.tax().stream().map(t -> t.value() == null ? BigDecimal.ZERO : t.value())

@@ -449,6 +449,78 @@
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- maven-surefire-plugin + maven-dependency-plugin (sessão de
+                 19/09/2026): sem esta configuração, o build funcionava
+                 normalmente, mas imprimia uma sequência de warnings do JDK a
+                 cada execução de teste, todos com a MESMA causa raiz:
+
+                   "Mockito is currently self-attaching to enable the
+                   inline-mock-maker. This will no longer work in future
+                   releases of the JDK..."
+                   "WARNING: A Java agent has been loaded dynamically
+                   (byte-buddy-agent...)"
+                   "WARNING: Dynamic loading of agents will be disallowed by
+                   default in a future release"
+
+                 O Mockito (a partir da v5, com o "inline mock maker" como
+                 padrão, necessário para mockar classes finais/records) usa a
+                 biblioteca Byte Buddy para se ANEXAR à JVM como um javaagent
+                 DEPOIS que ela já subiu (Java Attach API). O JDK vem avisando,
+                 desde a v21 (JEP 451, "Prepare to Disallow the Dynamic Loading
+                 of Agents"), que essa forma DINÂMICA de carregar agents será
+                 desabilitada por padrão em um release futuro - quando isso
+                 acontecer, testes com Mockito param de funcionar sem nenhuma
+                 mudança de código nossa, só pela troca de JDK.
+
+                 CORREÇÃO: declarar o Mockito como agent explicitamente, junto
+                 com o do JaCoCo, via "argLine" do Surefire, em vez de deixá-lo
+                 se autoanexar. "@{argLine}" (arroba, não cifrão) é a sintaxe
+                 que o próprio JaCoCo recomenda para combinar múltiplos agents
+                 sem que um sobrescreva o outro - o "prepare-agent" do JaCoCo
+                 (acima) já injeta seu próprio -javaagent nessa mesma
+                 propriedade.
+
+                 1ª TENTATIVA (falhou - registrada aqui de propósito, como
+                 lição): usar "${org.mockito:mockito-core:jar}" direto no
+                 argLine, assumindo que o Maven resolveria essa expressão
+                 sozinho para o caminho do jar do mockito-core. Resultado real
+                 (log do usuário, 19/09/2026): "Error opening zip file or JAR
+                 manifest missing : ${org.mockito:mockito-core:jar}" - a
+                 propriedade nunca existiu, então o Maven a passou como TEXTO
+                 LITERAL para o "-javaagent:", e o java.exe tentou abrir um
+                 arquivo chamado exatamente "${org.mockito:mockito-core:jar}",
+                 travando a JVM forkada ANTES de qualquer teste rodar
+                 ("Tests run: 0", "VM crash" - tudo consequência desse único
+                 erro raiz, não problemas separados). A causa: essa sintaxe de
+                 propriedade "groupId:artifactId:type" não é resolvida
+                 automaticamente pelo Maven core - ela só passa a existir se o
+                 goal "dependency:properties" (do maven-dependency-plugin,
+                 plugin abaixo) rodar ANTES da fase "test", gerando essas
+                 propriedades para cada dependência resolvida do projeto. Eu
+                 tinha usado a sintaxe sem declarar esse plugin - correção
+                 completa agora, com as duas peças juntas. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate-javaagent-properties</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
+
             <!-- Checkstyle: análise ESTÁTICA do código-fonte (não precisa
                  compilar nada - lê o .java como texto/AST), buscando bugs
                  comuns e problemas estruturais (import não usado, bloco
@@ -612,12 +684,81 @@
                  necessário - two-step de propósito, para permitir um hook de
                  "teardown" entre os dois (não usado aqui, mas é o motivo da
                  API ser assim). -->
+            <!-- ATUALIZAÇÃO (19/09/2026, complemento à correção do Mockito
+                 registrada no maven-surefire-plugin acima): o mesmo trio de
+                 warnings do JDK ("Java agent has been loaded dynamically",
+                 "Mockito is currently self-attaching...", "Dynamic loading
+                 of agents will be disallowed...") também aparecia aqui, na
+                 fase "integration-test" (failsafe/Cucumber) - só que com uma
+                 causa raiz DIFERENTE: os step definitions do Cucumber nunca
+                 chamam Mockito (é um teste de ponta a ponta, com um contexto
+                 Spring real e um MySQL real via Testcontainers - não há nada
+                 pra "mockar"). Quem se autoanexa dinamicamente aqui é o
+                 próprio HIBERNATE, que usa a mesma biblioteca por baixo dos
+                 panos (Byte Buddy) para gerar, em tempo de execução, as
+                 classes-proxy usadas no lazy loading de entidades JPA
+                 (ex: uma FK que só é carregada do banco quando o getter é
+                 chamado pela primeira vez).
+
+                 Por que o fix do surefire não "vazou" pra cá: apesar de os
+                 dois plugins compartilharem o MESMO pom.xml, cada um roda
+                 sua própria JVM forkada, com seu próprio "argLine" -
+                 configurar um não afeta o outro, por isso essa configuração
+                 precisa existir aqui também, separadamente.
+
+                 A correção segue exatamente o mesmo raciocínio já explicado
+                 em detalhe no maven-surefire-plugin acima (mesma sintaxe
+                 "@{argLine}" para conviver com o agent do JaCoCo, mesma
+                 dependência do goal "dependency:properties", já registrado
+                 uma única vez lá em cima na fase "initialize" - não precisa
+                 ser duplicado aqui, as properties geradas valem pro build
+                 inteiro) - só troca o agent declarado: em vez do jar do
+                 mockito-core, o do byte-buddy-agent (a mesma biblioteca,
+                 usada aqui pelo Hibernate em vez de pelo Mockito).
+
+                 DESCOBERTA EXTRA (19/09/2026, ao ler o `mvn clean verify` real
+                 do usuário após esta correção): o log mostrou o failsafe
+                 rodando os cenários de Cucumber DUAS vezes seguidas -
+                 "failsafe:integration-test (default)" (a que realmente
+                 executa os 75 cenários) e, logo em seguida,
+                 "failsafe:integration-test (cucumber-integration-tests)"
+                 respondendo apenas "Skipping execution of surefire because
+                 it has already been run for this configuration" (o mesmo
+                 acontece de novo no goal "verify"). Causa: o
+                 `spring-boot-starter-parent` (nosso `<parent>`, lá no topo
+                 deste pom) já vem com uma entrada de `<pluginManagement>`
+                 própria para o `maven-failsafe-plugin`, com uma `<execution>`
+                 SEM id explícito (que por isso herda o id literal "default")
+                 rodando exatamente os mesmos goals "integration-test"/
+                 "verify" - é o motivo, aliás, de o Spring Boot "vender" o
+                 failsafe como algo que "funciona sozinho" só de declarar o
+                 plugin, sem precisar de `<executions>` própria. Como nossa
+                 execução (id "cucumber-integration-tests") tem um id
+                 DIFERENTE do id herdado ("default"), o Maven não faz merge
+                 das duas em uma só - as duas ficam registradas e RODARIAM em
+                 dobro, não fosse o próprio failsafe detectar que a
+                 configuração é idêntica e pular a segunda automaticamente
+                 (daí a mensagem "Skipping..." - inofensiva hoje, mas frágil:
+                 se um dia a configuração das duas divergisse um pouco, o
+                 build passaria a rodar a suíte inteira, com Testcontainers e
+                 tudo, duas vezes). CORREÇÃO: renomear o id da nossa própria
+                 `<execution>` para "default" também - aí o Maven faz o MERGE
+                 das duas (a nossa configuração, incluindo o `argLine` do
+                 Byte Buddy acima, sobrescreve/completa a herdada) em vez de
+                 registrar uma execução extra, deixando só uma execução real
+                 no log, como já acontecia (sem essa duplicidade aparente)
+                 com o `maven-surefire-plugin` acima, que nunca declarou
+                 `<executions>` própria justamente por já usar o binding
+                 automático padrão. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -javaagent:${net.bytebuddy:byte-buddy-agent:jar}</argLine>
+                </configuration>
                 <executions>
                     <execution>
-                        <id>cucumber-integration-tests</id>
+                        <id>default</id>
                         <goals>
                             <goal>integration-test</goal>
                             <goal>verify</goal>

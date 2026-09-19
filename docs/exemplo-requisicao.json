@@ -71,7 +71,7 @@
       "isDefault": true,
       "installments": 1,
       "token": [
-        { "name": "ACCESS_TOKEN", "id": "XZA1BVERYJ-EXAMPLE", "gateway": "INTERNAL", "expirationDate": null }
+        { "name": "ACCESS_TOKEN", "id": "XZA1BVERYJ-EXAMPLE", "gateway": "INTERNAL", "expirationDt": null }
       ],
       "brand": "VISA"
     },
@@ -84,7 +84,7 @@
       "isDefault": false,
       "installments": 1,
       "token": [
-        { "name": "ACCESS_TOKEN", "id": "XZA1BVERYA-EXAMPLE", "gateway": "INTERNAL", "expirationDate": null }
+        { "name": "ACCESS_TOKEN", "id": "XZA1BVERYA-EXAMPLE", "gateway": "INTERNAL", "expirationDt": null }
       ],
       "brand": null
     }

@@ -45,7 +45,7 @@
       "isDefault": true,
       "installments": 1,
       "token": [
-        { "name": "ACCESS_TOKEN", "id": "__TOKEN_ID__", "gateway": "INTERNAL", "expirationDate": null }
+        { "name": "ACCESS_TOKEN", "id": "__TOKEN_ID__", "gateway": "INTERNAL", "expirationDt": null }
       ],
       "brand": null
     }

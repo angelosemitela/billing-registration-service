@@ -449,11 +449,26 @@ práticas" e a intenção mais provável do texto original).
 - **`T_PAYMENT.DEFAULT_B`** está descrito, no enunciado, como vindo de
   `payment.isMultiple` (igual ao campo `MULTIPLE_B` logo acima) - claramente
   um erro de cópia. Mapeado corretamente a partir de `payment.isDefault`.
-- **Regra de trial (`isTrial`) e token de expiração**: o enunciado reaproveita,
-  para `payment.token.expirationDate`, o mesmo texto de validação usado em
-  `transactionDate` ("se a data estiver no futuro, erro"), o que não faz
-  sentido para uma data de EXPIRAÇÃO. Interpretado como erro de cópia; essa
-  restrição não foi aplicada a `expirationDate`.
+- **Token de expiração (`payment.token.expirationDate` -> `expirationDt`)**:
+  o enunciado original reaproveitava, para este campo, o mesmo texto de
+  validação usado em `transactionDate` ("se a data estiver no futuro,
+  erro"), o que não fazia sentido para uma data de EXPIRAÇÃO. Interpretamos
+  isso, inicialmente, como um erro de cópia e não aplicamos nenhuma
+  restrição temporal ao campo. Em 19/09/2026 o usuário esclareceu a regra
+  correta: um token/método de pagamento não pode entrar na base já
+  EXPIRADO, ou seja, o campo (opcional) não pode ter uma data no PASSADO.
+  Implementado em `PurchaseValidationService.validateTokens`. Aproveitamos
+  para padronizar o nome do campo para `expirationDt`, seguindo a mesma
+  convenção já usada em `transactionDt` e nas colunas `*_DT` do banco.
+- **`billing.tax.name` aceitava nulo (bug)**: a coluna `T_BILL_TAX.NAME` já
+  era `NOT NULL` no banco, mas nada no `PurchaseValidationService`
+  verificava isso ANTES de persistir - um `name` nulo só era barrado na
+  hora do INSERT, e como não existe (ainda) um `@ExceptionHandler` para
+  `DataIntegrityViolationException`, o cliente recebia um HTTP 500 em vez
+  de um 400 com uma mensagem clara. Corrigido em 19/09/2026 adicionando a
+  checagem de `billing.tax.name` em `validateBillings`, na mesma linha dos
+  demais campos obrigatórios da classe (fail fast, antes de qualquer
+  persistência).
 - **`account` como lista**: modelado no contrato como array, mas toda a
   regra de negócio (uma compra = um assinante) só faz sentido para
   exatamente 1 elemento. Validamos explicitamente que a lista tenha
