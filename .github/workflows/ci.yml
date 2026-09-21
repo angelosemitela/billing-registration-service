@@ -61,10 +61,21 @@ jobs:
       # Ver pom.xml para o racional completo de cada plugin/versão.
       #
       # "-B" (batch mode) desliga prompts interativos do Maven, que não
-      # fazem sentido em CI. Nenhum banco de dados é necessário aqui: toda
-      # a suíte atual é de testes unitários com Mockito (sem
-      # @SpringBootTest/@DataJpaTest), então não há necessidade de subir um
-      # serviço de MySQL para este job - ver nota sobre isso no README.
+      # fazem sentido em CI.
+      #
+      # NOTA ATUALIZADA (21/09/2026 - a nota original aqui, de antes da
+      # suíte de Cucumber existir, dizia que "nenhum banco de dados é
+      # necessário"; isso deixou de ser verdade e o texto abaixo substitui
+      # aquele): "mvn verify" também roda a suíte funcional/E2E de Cucumber
+      # (fase "integration-test"/failsafe - ver RunCucumberIT), que sobe um
+      # container REAL de MySQL via Testcontainers. Isso funciona AQUI sem
+      # nenhuma configuração extra de "services:" no workflow porque
+      # runners hospedados do GitHub (ubuntu-latest) já vêm com o Docker
+      # instalado e disponível de fábrica - é só o Docker que o
+      # Testcontainers precisa encontrar, não uma instância de MySQL já
+      # rodando (o container é subido e derrubado pelo próprio teste). Ver
+      # pom.xml (comentário do maven-failsafe-plugin) para o racional
+      # completo dessa suíte.
       # Usa o Maven já instalado na imagem do runner (ubuntu-latest já vem
       # com uma versão recente do Maven). O projeto não versiona o Maven
       # Wrapper (mvnw/mvnw.cmd) ainda - ver nota no README sobre isso como
@@ -100,3 +111,23 @@ jobs:
           path: target/spotbugsXml.xml
           retention-days: 15
           if-no-files-found: ignore
+
+      # Acrescentado em 21/09/2026: até então, o único jeito de confirmar
+      # que a suíte de Cucumber (100 cenários) realmente rodou era abrir o
+      # log bruto (texto solto, sem destaque) do step "mvn verify" acima e
+      # procurar por "Tests run:" no meio de milhares de linhas - dava a
+      # falsa impressão de que os testes funcionais não tinham sido
+      # executados, quando na verdade só não havia NENHUM arquivo de
+      # relatório gerado para publicar (RunCucumberIT usava só o plugin
+      # "pretty", que escreve apenas no console). Agora RunCucumberIT
+      # também gera "html"/"json" (ver
+      # src/test/java/.../cucumber/RunCucumberIT.java), e este step sobe
+      # esse HTML como artefato clicável - mesmo padrão do JaCoCo acima.
+      - name: Publicar relatório de testes funcionais (Cucumber) como artefato
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cucumber-report
+          path: target/cucumber-reports/
+          retention-days: 15
+          if-no-files-found: warn

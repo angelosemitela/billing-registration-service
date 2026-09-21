@@ -33,6 +33,15 @@ import static io.cucumber.junit.platform.engine.Constants.PLUGIN_PROPERTY_NAME;
 @IncludeEngines("cucumber")
 @SelectClasspathResource("features")
 @ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "com.aalvarenga.billing.cucumber")
-@ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty")
+// "pretty" (console) sempre existiu; "html"/"json" foram acrescentados em
+// 21/09/2026 para dar ao Cucumber um RELATÓRIO PRÓPRIO em arquivo (ver
+// README, seção "Evoluções pedidas") - antes disso, o único jeito de
+// confirmar que os cenários rodaram era abrir o log bruto (texto solto) do
+// step "mvn verify" no CI, já que não existia nenhum arquivo gerado para
+// publicar como artefato (diferente do JaCoCo/SpotBugs, que sempre tiveram
+// seu próprio relatório em arquivo). Ver ci.yml para o step que publica
+// "target/cucumber-reports/" como artefato baixável do GitHub Actions.
+@ConfigurationParameter(key = PLUGIN_PROPERTY_NAME,
+        value = "pretty, html:target/cucumber-reports/cucumber-report.html, json:target/cucumber-reports/cucumber-report.json")
 public class RunCucumberIT {
 }
