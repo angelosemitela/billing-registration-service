@@ -89,6 +89,12 @@ public class BillingService {
                     // PAYMENT_DT só é preenchido quando o repasse é efetivado
                     // (fora do escopo desta v1) - fica null na criação.
                     .paymentDt(null)
+                    // Campos acrescentados em 21/09/2026 (ver README, seção
+                    // "Evoluções pedidas"): regra explícita do usuário - toda
+                    // fatura nasce sem saldo em aberto e sem estorno.
+                    .balanceValue(BigDecimal.ZERO)
+                    .refundValue(BigDecimal.ZERO)
+                    .refundStatus(DomainStatus.BILL_REFUND_NO_REFUND)
                     .build());
 
             persistTaxes(request.tax(), bill.getId());

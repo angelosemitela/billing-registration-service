@@ -88,10 +88,24 @@ public class ProductService {
             // desligado, produto RECURRENCE, ou ONESHOT sem vigência - os dois
             // campos ficam null.
             boolean isOneShotWithExpiration = request.type() == ProductType.ONESHOT && expires;
-            Long cancellationReqDt = (autoScheduleCancelEnabled && isOneShotWithExpiration)
-                    ? transactionDateEpochMillis : null;
-            Long cancellationSchDt = (autoScheduleCancelEnabled && isOneShotWithExpiration)
-                    ? cycleEndDt : null;
+            boolean scheduledCancellation = autoScheduleCancelEnabled && isOneShotWithExpiration;
+            Long cancellationReqDt = scheduledCancellation ? transactionDateEpochMillis : null;
+            Long cancellationSchDt = scheduledCancellation ? cycleEndDt : null;
+
+            // Campos acrescentados em 21/09/2026 (ver README, seção "Evoluções
+            // pedidas"): detalham o MESMO evento que cancellationReqDt/
+            // cancellationSchDt acima já registra - por isso reaproveitam a
+            // MESMA condição booleana "scheduledCancellation", nunca uma
+            // derivação própria (garante que as duas famílias de campo nunca
+            // fiquem dessincronizadas).
+            //
+            // "Cenário 1" (sem agendamento) x "cenário 2" (agendado),
+            // conforme pedido do usuário:
+            Integer cancellationStatus = scheduledCancellation
+                    ? DomainStatus.PRODUCT_CANCELLATION_SCHEDULED : DomainStatus.PRODUCT_CANCELLATION_NO_SCHEDULES;
+            String cancellationChannel = scheduledCancellation ? "BRS" : null;
+            String cancellationDescription = scheduledCancellation
+                    ? "Agendamento automatico por ser produto cm servico sem recorrencia" : null;
 
             ProductEntity entity = ProductEntity.builder()
                     .accountId(accountId)
@@ -115,6 +129,12 @@ public class ProductService {
                     .disableBilling(disableBilling)
                     .cancellationReqDt(cancellationReqDt)
                     .cancellationSchDt(cancellationSchDt)
+                    .suspensionStatus(DomainStatus.PRODUCT_SUSPENSION_COMPLIANT)
+                    .cancellationChannel(cancellationChannel)
+                    .cancellationEfcDt(null) // só preenchido quando o cancelamento é EFETIVADO - fora do escopo desta v1
+                    .cancellationStatus(cancellationStatus)
+                    .cancellationDescription(cancellationDescription)
+                    .autoCancelSch(scheduledCancellation)
                     .build();
 
             entity = productRepository.save(entity);

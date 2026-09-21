@@ -65,6 +65,7 @@ public class PurchaseValidationService {
     private final CurrencyDomainRepository currencyDomainRepository;
     private final BillRepository billRepository;
     private final PaymentTokenRepository paymentTokenRepository;
+    private final ConfigParameterService configParameterService;
 
     /**
      * Ponto de entrada: valida a requisição inteira, na ordem em que os
@@ -109,6 +110,23 @@ public class PurchaseValidationService {
             // renomeado para "transactionDt" - ver javadoc de PurchaseRequest)
             throw BusinessException.badRequest("transactionDt cannot be in the future");
         }
+        // Regra acrescentada em 21/09/2026 (ver README, seção "Evoluções
+        // pedidas"): piso mínimo configurável via T_CONFIG_PARAMETERS
+        // (ConfigParameterRules.MINIMAL_TRANSACTION_DATE), pensado para
+        // rejeitar dados claramente errados de origem (ex: um epoch millis
+        // digitado errado, muito antes de o sistema sequer existir) -
+        // mesma motivação do usuário: "evitamos de receber dados errados
+        // para esse campo". Comportamento fail-safe (mesmo padrão de
+        // FeatureToggleService/ConfigParameterService): se o parâmetro não
+        // estiver configurado (ou tiver um valor não numérico), a checagem
+        // é simplesmente PULADA, em vez de derrubar a requisição por causa
+        // de um problema de configuração que não é culpa de quem chamou a API.
+        configParameterService.getLongValue(ConfigParameterRules.MINIMAL_TRANSACTION_DATE)
+                .filter(minimumEpochMillis -> epochMillis < minimumEpochMillis)
+                .ifPresent(minimumEpochMillis -> {
+                    throw BusinessException.badRequest(
+                            "transactionDt cannot be earlier than the minimum accepted date (" + minimumEpochMillis + ")");
+                });
         return epochMillis;
     }
 

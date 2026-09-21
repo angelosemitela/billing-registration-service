@@ -18,6 +18,12 @@ import java.util.List;
  *                   descreve a fórmula como "productValue / installments",
  *                   mas cujo próprio exemplo numérico só bate usando
  *                   {@code chargedValue}).
+ * @param balanceValue valor em aberto (não pago) da fatura (ver README,
+ *                   seção "Evoluções pedidas" de 21/09/2026).
+ * @param refundValue valor já estornado ao assinante.
+ * @param updatedValue {@code chargedValue - refundValue} - o valor "líquido"
+ *                   da fatura depois de descontado o que já foi estornado.
+ * @param refundSt   {@code BACKEND_VALUE} de {@code T_DOMAIN_BILL_REFUND_STATUS}.
  */
 public record QueryBillItem(
         String billId,
@@ -37,6 +43,10 @@ public record QueryBillItem(
         String paymentMethod,
         String billSt,
         String billType,
-        List<QueryTaxItem> tax
+        List<QueryTaxItem> tax,
+        BigDecimal balanceValue,
+        BigDecimal refundValue,
+        BigDecimal updatedValue,
+        String refundSt
 ) {
 }

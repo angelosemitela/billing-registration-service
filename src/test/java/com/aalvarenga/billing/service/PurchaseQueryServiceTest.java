@@ -120,6 +120,14 @@ class PurchaseQueryServiceTest {
                 .assetId("1").cycleStartDt(1_000L).cycleEndDt(2_000L)
                 .defaultPaymentId("3").channel("WEB").transactionDt(1_000L).status(1)
                 .disableBilling(false)
+                // Campos acrescentados em 21/09/2026 (ver README, seção
+                // "Evoluções pedidas") - "cenário 1" (sem cancelamento
+                // agendado): DomainStatus.PRODUCT_SUSPENSION_COMPLIANT/
+                // PRODUCT_CANCELLATION_NO_SCHEDULES são, coincidentemente,
+                // ambos "1".
+                .suspensionStatus(DomainStatus.PRODUCT_SUSPENSION_COMPLIANT)
+                .cancellationStatus(DomainStatus.PRODUCT_CANCELLATION_NO_SCHEDULES)
+                .autoCancelSch(false)
                 .build();
     }
 
@@ -144,6 +152,9 @@ class PurchaseQueryServiceTest {
 
         when(productRepository.findByAccountId(1L)).thenReturn(List.of(product));
         when(domainStatusLookupService.productStatuses(Set.of(1))).thenReturn(Map.of(1, "ACTIVE"));
+        // Acrescentados em 21/09/2026 (ver README, seção "Evoluções pedidas").
+        when(domainStatusLookupService.productSuspensionStatuses(Set.of(1))).thenReturn(Map.of(1, "COMPLIENT"));
+        when(domainStatusLookupService.productCancellationStatuses(Set.of(1))).thenReturn(Map.of(1, "NO_SCHEDULES"));
         when(discountRepository.findByProductIdIn(List.of(2L))).thenReturn(List.of());
 
         PaymentEntity payment = PaymentEntity.builder()
@@ -253,6 +264,9 @@ class PurchaseQueryServiceTest {
         when(accountDocumentRepository.findByAccountIdAndStatus(1L, DomainStatus.ACTIVE)).thenReturn(List.of());
         when(accountPhoneRepository.findByAccountIdAndStatus(1L, DomainStatus.ACTIVE)).thenReturn(List.of());
         when(domainStatusLookupService.productStatuses(Set.of(1))).thenReturn(Map.of(1, "ACTIVE"));
+        // Acrescentados em 21/09/2026 (ver README, seção "Evoluções pedidas").
+        when(domainStatusLookupService.productSuspensionStatuses(Set.of(1))).thenReturn(Map.of(1, "COMPLIENT"));
+        when(domainStatusLookupService.productCancellationStatuses(Set.of(1))).thenReturn(Map.of(1, "NO_SCHEDULES"));
         when(discountRepository.findByProductIdIn(List.of(2L)))
                 .thenReturn(List.of(stillValidAtNextBill, expiresBeforeNextBill, alreadyExpired, cancelled));
         when(domainStatusLookupService.discountStatuses(any())).thenReturn(Map.of(1, "ACTIVE", 3, "CANCELLED"));
@@ -296,6 +310,7 @@ class PurchaseQueryServiceTest {
         when(billTaxRepository.findByBillIdIn(List.of(101L, 102L))).thenReturn(List.of());
         when(domainStatusLookupService.billStatuses(any())).thenReturn(Map.of(4, "PAID"));
         when(domainStatusLookupService.billTypes(any())).thenReturn(Map.of(1, "BUY"));
+        when(domainStatusLookupService.billRefundStatuses(any())).thenReturn(Map.of(1, "NO_REFUND"));
 
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest("EXT-1", null, false, false, true, 2));
 
@@ -316,6 +331,11 @@ class PurchaseQueryServiceTest {
                 .currency("BRL").transactionId("TX-" + id).installments("1").provider("CIELO")
                 .paymentMethod("CREDIT").status(4).billType(1)
                 .cycleStartDt(1_000L).dueDt(dueDt)
+                // Campos acrescentados em 21/09/2026 (ver README, seção
+                // "Evoluções pedidas"): toda fatura nasce sem saldo em
+                // aberto e sem estorno.
+                .balanceValue(BigDecimal.ZERO).refundValue(BigDecimal.ZERO)
+                .refundStatus(DomainStatus.BILL_REFUND_NO_REFUND)
                 .build();
     }
 
@@ -348,6 +368,9 @@ class PurchaseQueryServiceTest {
         when(accountPhoneRepository.findByAccountIdAndStatus(1L, DomainStatus.ACTIVE)).thenReturn(List.of());
         when(productRepository.findByAccountId(1L)).thenReturn(List.of(ongoingTrial, endedTrial));
         when(domainStatusLookupService.productStatuses(Set.of(1))).thenReturn(Map.of(1, "ACTIVE"));
+        // Acrescentados em 21/09/2026 (ver README, seção "Evoluções pedidas").
+        when(domainStatusLookupService.productSuspensionStatuses(Set.of(1))).thenReturn(Map.of(1, "COMPLIENT"));
+        when(domainStatusLookupService.productCancellationStatuses(Set.of(1))).thenReturn(Map.of(1, "NO_SCHEDULES"));
         when(discountRepository.findByProductIdIn(List.of(2L, 4L))).thenReturn(List.of());
 
         ResponseEntity<QueryResponse> responseEntity = service.process(new PurchaseQueryRequest("EXT-1", null, true, false, false, null));

@@ -51,6 +51,15 @@ class PurchaseValidationServiceTest {
     private BillRepository billRepository;
     @Mock
     private PaymentTokenRepository paymentTokenRepository;
+    // Acrescentado em 21/09/2026 (ver README, seção "Evoluções pedidas") -
+    // não precisa de stub explícito: sem ele, o Mockito já devolve
+    // Optional.empty() por padrão para qualquer método não "stubado" que
+    // retorne Optional (comportamento embutido desde o Mockito 2), o que faz
+    // a nova checagem de piso mínimo em validateTransactionDt virar um
+    // no-op - exatamente o comportamento fail-safe desejado para os testes
+    // que não têm relação nenhuma com essa regra.
+    @Mock
+    private ConfigParameterService configParameterService;
 
     private PurchaseValidationService service;
 
@@ -58,7 +67,8 @@ class PurchaseValidationServiceTest {
     void setUp() {
         service = new PurchaseValidationService(
                 accountRepository, logRepository, countryDomainRepository,
-                currencyDomainRepository, billRepository, paymentTokenRepository);
+                currencyDomainRepository, billRepository, paymentTokenRepository,
+                configParameterService);
     }
 
     @Test
@@ -68,6 +78,43 @@ class PurchaseValidationServiceTest {
         assertThatThrownBy(() -> service.validate(request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("transactionDt cannot be in the future");
+    }
+
+    // ------------------------------------------------------------------
+    // Piso mínimo de transactionDt (21/09/2026, ver README, seção
+    // "Evoluções pedidas") - T_CONFIG_PARAMETERS.MINIMAL_TRANSACTION_DATE.
+    // ------------------------------------------------------------------
+
+    @Test
+    void rejectsTransactionDtBeforeConfiguredMinimum() {
+        when(configParameterService.getLongValue(ConfigParameterRules.MINIMAL_TRANSACTION_DATE))
+                .thenReturn(java.util.Optional.of(1_767_236_400_000L));
+        // "1" (1 ms após o epoch) - exatamente o valor de exemplo pedido pelo
+        // usuário para este cenário de erro.
+        PurchaseRequest request = baseRequestBuilder("1", List.of());
+
+        assertThatThrownBy(() -> service.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("minimum accepted date");
+    }
+
+    @Test
+    void allowsOldTransactionDt_whenMinimumIsNotConfigured() {
+        // Nenhum "when(...)" para configParameterService.getLongValue: por
+        // padrão do Mockito (desde a v2), um método não "stubado" que
+        // devolve Optional já retorna Optional.empty() sozinho - simula
+        // exatamente o comportamento fail-safe real (parâmetro ausente =
+        // checagem pulada, ver ConfigParameterService/PurchaseValidationService).
+        PurchaseRequest request = baseRequestBuilder("1", List.of());
+
+        assertThatThrownBy(() -> service.validate(request))
+                // A requisição ainda falha por outro motivo qualquer mais à
+                // frente na validação (ex: produto/pagamento incompletos
+                // para este teste minimalista) - o ponto aqui é só que ela
+                // NÃO falha por causa de transactionDt, provando que a
+                // checagem de piso mínimo foi de fato pulada.
+                .isInstanceOf(BusinessException.class)
+                .hasMessageNotContaining("transactionDt");
     }
 
     // ------------------------------------------------------------------

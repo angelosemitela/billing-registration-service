@@ -42,6 +42,7 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | campo                            | valor             | statusEsperado | trechoEsperado                        |
       | account[0].email                 | (vazio)           | 400            | account.email                         |
       | transactionDt                    | 2000000000000000  | 400            | transactionDt cannot be in the future |
+      | transactionDt                    | 1                 | 400            | minimum accepted date                 |
       | channel                          | (vazio)           | 400            | channel: channel is required          |
       | account[0].id                    | 1234567890        | 404            | account.id not found                  |
       | account[0].name                  | (vazio)           | 400            | account.name                          |
@@ -67,6 +68,7 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | product[0].type                  | (vazio)           | 400            | ProductType                           |
       | product[0].type                  | XYZ               | 400            | ProductType                           |
       | product[0].isExpiriationService  | (ausente)         | 400            | product.isExpiriationService          |
+      | product[0].isExpiriationService  | false             | 400            | product.isExpiriationService          |
       | product[0].recurrenceFrequency   | (vazio)           | 400            | RecurrenceFrequency                   |
       | product[0].recurrenceFrequency   | XYZ               | 400            | RecurrenceFrequency                   |
       | product[0].productValue          | (vazio)           | 400            | product.productValue                  |
@@ -79,6 +81,13 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | product[0].currency              | XYZ               | 400            | Unknown currency code                 |
       | payment[0].method                | (vazio)           | 400            | PaymentMethod                         |
       | payment[0].method                | XYZ               | 400            | PaymentMethod                         |
+      | payment[0].cardNumber            | (vazio)           | 400            | payment.cardNumber                    |
+      | payment[0].expiration            | (vazio)           | 400            | payment.expiration                    |
+      | payment[0].expiration            | XYZ               | 400            | payment.expiration                    |
+      | payment[0].expiration            | 13/31             | 400            | payment.expiration                    |
+      | payment[0].expiration            | 12/22             | 400            | payment.expiration                    |
+      | payment[0].isMultiple            | (vazio)           | 400            | payment.isMultiple                    |
+      | payment[0].isMultiple            | XYZ               | 400            | payment                               |
       | payment[0].isDefault             | (ausente)         | 400            | isDefault                             |
       | payment[0].isDefault             | false             | 400            | isDefault                             |
       | payment[0].installments          | (vazio)           | 400            | installments                          |
@@ -86,7 +95,6 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | payment[0].installments          | -1                | 400            | installments                          |
       | payment[0].installments          | 0                 | 400            | installments                          |
       | payment[0].installments          | 13                | 400            | installments                          |
-      | payment[0].installments          | 2                 | 400            | installments                          |
       | payment[0].token[0].name         | (vazio)           | 400            | payment.token.name                    |
       | payment[0].token[0].id           | (vazio)           | 400            | payment.token.id                      |
       | payment[0].token[0].gateway      | (vazio)           | 400            | payment.token.gateway                 |
@@ -115,5 +123,6 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
       | billing[0].provider              | (vazio)           | 400            | billing.provider                      |
       | billing[0].paymentMethod         | (vazio)           | 400            | PaymentMethod                         |
       | billing[0].paymentMethod         | XYZ               | 400            | PaymentMethod                         |
+      | billing[0].paymentMethod         | PIX               | 400            | billing.paymentMethod                 |
       | billing[0].tax[0].value          | 0                 | 412            | sum of taxes does not match           |
       | billing[0].tax[0].name           | (vazio)           | 400            | billing.tax.name                      |

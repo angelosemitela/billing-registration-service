@@ -613,6 +613,67 @@ na mesma linha) antes de virar `NOT NULL`, e as demais colunas novas
 (`CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT`, `T_PAYMENT.BRAND`) nascem
 `NULLABLE`; `V10` só cria uma tabela nova.
 
+### Evoluções pedidas em 21/09/2026
+
+Terceira rodada, novamente só com migrations novas (`V11` a `V14`), toda
+ela pensada para **não exigir reset do banco local** (mesmo cuidado de
+`V9`/`V10` - ver acima):
+
+- **Parâmetros de configuração genéricos** (tabela nova
+  `T_CONFIG_PARAMETERS` + `_AU` - por pedido explícito, com o nome
+  abreviado `T_CONFIG_PARAMS_AU`, `V11`): mesmo espírito de
+  `T_CONFIG_FEATURE_TOGGLE` (`V10`), mas para um `VALUE` de texto livre em
+  vez de um booleano - primeiro uso é `MINIMAL_TRANSACTION_DATE` (ver
+  abaixo). Lido via `ConfigParameterService.getValue`/`getLongValue`, com
+  nomes centralizados em `ConfigParameterRules` (mesmo padrão de
+  `FeatureToggleService`/`FeatureToggleRules`) e o mesmo comportamento
+  *fail-safe*: parâmetro ausente ou mal formatado = checagem que depende
+  dele é **pulada**, nunca um erro 500.
+- **Piso mínimo para `transactionDt`** (`PurchaseValidationService`): usa
+  `ConfigParameterRules.MINIMAL_TRANSACTION_DATE` para rejeitar (`400`) uma
+  data de transação anterior ao mínimo configurado (semeado com
+  `1767236400000`) - pensado para barrar um epoch millis claramente digitado
+  errado, sem precisar alterar código a cada mudança desse piso.
+- **Domínios de suspensão/cancelamento de produto e estorno de fatura**
+  (3 tabelas novas - `T_DOMAIN_PRODUCT_SUSPENSION_STATUS`,
+  `T_DOMAIN_PRODUCT_CANCELLATION_STATUS`, `T_DOMAIN_BILL_REFUND_STATUS`,
+  `V12`, sem auditoria - mesma exceção de sempre para tabelas `T_DOMAIN_*`):
+  já nascem com `BACKEND_VALUE` (diferente de `V1`+`V4`, aqui não há uma
+  V1 antiga para não poder editar).
+- **`T_PRODUCT.SUSPENSION_STATUS`/`CANCELLATION_CHANNEL`/`CANCELLATION_EFC_DT`/
+  `CANCELLATION_STATUS`/`CANCELLATION_DESCRIPTION`/`AUTO_CANCEL_SCH_B`**
+  (`V13`): detalham o MESMO evento que `CANCELLATION_REQ_DT`/
+  `CANCELLATION_SCH_DT` (`V9`) já registrava - `ProductService` reaproveita
+  a idêntica condição booleana (feature toggle
+  `AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT` ligado E produto `ONESHOT` com
+  `isExpiriationService=true`) para preencher as duas famílias de coluna
+  juntas, nunca em dessincronia. Curiosidade de migration: como essa mesma
+  condição já podia ser DEDUZIDA de `CANCELLATION_REQ_DT IS NULL` (coluna
+  existente desde `V9`), o *backfill* das 3 colunas `NOT NULL` usa essa
+  dedução em vez de exigir reset de banco - mesmo truque de `V9.DISABLE_BILLING_B`
+  (derivada de `TYPE`), aqui aplicado a uma condição um pouco mais elaborada.
+  `CANCELLATION_EFC_DT` fica sempre `NULL` por enquanto (só populada quando
+  o cancelamento é de fato EFETIVADO - fora do escopo desta v1).
+- **`T_BILL.BALANCE_VALUE`/`REFUND_VALUE`/`REFUND_STATUS`** (`V14`): regra
+  explícita do usuário - toda fatura nova nasce com `0`/`0`/"Sem estornos".
+- **Consulta de dados** (`PurchaseQueryService`): `products[]` ganhou
+  `suspensionSt`/`cancChannel`/`cancellationEfcDt`/`cancellationSt`/
+  `cancellationDesc`/`autoCancelSch`; `bill[]` ganhou `balanceValue`/
+  `refundValue`/`updatedValue` (calculado, `chargedValue - refundValue`)/
+  `refundSt`. Mesmo padrão de *lookup* em lote (1 `SELECT` por tabela de
+  domínio, nunca 1 por item da lista) já usado para `productSt`/`billSt`.
+- **Cobertura de testes**: `PurchaseValidationServiceTest` ganhou 2 casos
+  novos para o piso de `transactionDt` (rejeita abaixo do mínimo
+  configurado; sem quebrar quando o parâmetro não existe), e
+  `ProductServiceTest`/`PurchaseQueryServiceTest` foram estendidos com
+  asserções para os 6 + 4 campos novos, nos mesmos testes que já cobriam
+  o par `CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT`.
+
+**Nenhum reset de banco necessário para `V11`-`V14`**: `V11`/`V12` só criam
+tabelas novas; as colunas `NOT NULL` de `V13`/`V14` são todas *backfilled*
+deterministicamente (por dedução de uma coluna já existente, ou por um
+valor fixo igual para toda linha) antes do `MODIFY ... NOT NULL`.
+
 ### Nota de compatibilidade: Jackson 3 no Spring Boot 4.1
 
 O Spring Boot 4.1 (Spring Framework 7) passou a usar o **Jackson 3** como
@@ -1273,6 +1334,7 @@ de outros frameworks para estudos futuros"):
 | Documentação da API | Nenhuma ainda | **springdoc-openapi** para gerar Swagger UI automaticamente a partir dos DTOs/controllers |
 | Idempotência/cache | Consulta direta ao `T_LOG` | **Redis** como cache de idempotência (mais rápido que consultar o banco relacional a cada requisição) |
 | Feature flags | Tabela própria (`T_CONFIG_FEATURE_TOGGLE`) + `FeatureToggleService` | **Togglz**, **FF4J**, **Unleash**, **LaunchDarkly** ou **Split** (soluções dedicadas, com painel de administração, *targeting* por usuário/percentual, e SDKs prontos); cache da leitura com Spring `@Cacheable` + **Caffeine** (evita ir ao banco em toda requisição); ou centralizar a configuração em **Spring Cloud Config**/**Consul**, com atualização em runtime via *refresh* |
+| Parâmetros de configuração (valor livre) | Tabela própria (`T_CONFIG_PARAMETERS`) + `ConfigParameterService` (`V11`, 21/09/2026) | Mesmas alternativas de "Feature flags" acima (é o mesmo problema, só com um `VALUE` de texto em vez de um booleano) - **Spring Cloud Config Server**/**Consul KV** se o parâmetro precisar ser o MESMO para todas as instâncias e recarregado via `@RefreshScope`; ou um `@ConfigurationProperties` comum quando o valor só muda com um novo deploy (não é o caso de `MINIMAL_TRANSACTION_DATE`, pensado para mudar sem deploy) |
 
 ### Próximo serviço natural a construir
 

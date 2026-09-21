@@ -80,6 +80,16 @@ class ProductServiceTest {
         // é exatamente essa a regra pedida ("valor de CYCLE_END_DT gerado pelo serviço").
         assertThat(entity.getCancellationSchDt()).isEqualTo(entity.getCycleEndDt());
         assertThat(entity.getCancellationSchDt()).isNotNull();
+        // Campos acrescentados em 21/09/2026 (ver README, seção "Evoluções
+        // pedidas") - "cenário 2" (cancelamento agendado): mesma condição
+        // booleana de cancellationReqDt/cancellationSchDt acima, nunca uma
+        // derivação própria.
+        assertThat(entity.getSuspensionStatus()).isEqualTo(DomainStatus.PRODUCT_SUSPENSION_COMPLIANT);
+        assertThat(entity.getCancellationStatus()).isEqualTo(DomainStatus.PRODUCT_CANCELLATION_SCHEDULED);
+        assertThat(entity.getCancellationChannel()).isEqualTo("BRS");
+        assertThat(entity.getCancellationDescription()).isNotBlank();
+        assertThat(entity.getAutoCancelSch()).isTrue();
+        assertThat(entity.getCancellationEfcDt()).isNull();
     }
 
     @Test
@@ -95,6 +105,12 @@ class ProductServiceTest {
         assertThat(entity.getDisableBilling()).isTrue();
         assertThat(entity.getCancellationReqDt()).isNull();
         assertThat(entity.getCancellationSchDt()).isNull();
+        // "Cenário 1" (sem agendamento) - ver README, seção "Evoluções pedidas" de 21/09/2026.
+        assertThat(entity.getSuspensionStatus()).isEqualTo(DomainStatus.PRODUCT_SUSPENSION_COMPLIANT);
+        assertThat(entity.getCancellationStatus()).isEqualTo(DomainStatus.PRODUCT_CANCELLATION_NO_SCHEDULES);
+        assertThat(entity.getCancellationChannel()).isNull();
+        assertThat(entity.getCancellationDescription()).isNull();
+        assertThat(entity.getAutoCancelSch()).isFalse();
     }
 
     @Test
@@ -108,6 +124,8 @@ class ProductServiceTest {
         assertThat(entity.getDisableBilling()).isTrue();
         assertThat(entity.getCancellationReqDt()).isNull();
         assertThat(entity.getCancellationSchDt()).isNull();
+        assertThat(entity.getCancellationStatus()).isEqualTo(DomainStatus.PRODUCT_CANCELLATION_NO_SCHEDULES);
+        assertThat(entity.getAutoCancelSch()).isFalse();
     }
 
     @Test
@@ -121,5 +139,7 @@ class ProductServiceTest {
         assertThat(entity.getDisableBilling()).isFalse();
         assertThat(entity.getCancellationReqDt()).isNull();
         assertThat(entity.getCancellationSchDt()).isNull();
+        assertThat(entity.getCancellationStatus()).isEqualTo(DomainStatus.PRODUCT_CANCELLATION_NO_SCHEDULES);
+        assertThat(entity.getAutoCancelSch()).isFalse();
     }
 }

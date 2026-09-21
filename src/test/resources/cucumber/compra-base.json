@@ -24,9 +24,9 @@
     {
       "codeId": "1",
       "name": "Produto E2E",
-      "type": "ONESHOT",
-      "isExpiriationService": false,
-      "recurrenceFrequency": null,
+      "type": "RECURRENCE",
+      "isExpiriationService": true,
+      "recurrenceFrequency": "MONTH",
       "productValue": 100,
       "discountValue": 0,
       "discountCycles": 0,
@@ -37,17 +37,17 @@
   ],
   "payment": [
     {
-      "method": "PIX",
+      "method": "CREDIT",
       "issuer": "Itau",
-      "cardNumber": null,
-      "expiration": null,
-      "isMultiple": null,
+      "cardNumber": "4111********8588",
+      "expiration": "12/35",
+      "isMultiple": true,
       "isDefault": true,
       "installments": 1,
       "token": [
         { "name": "ACCESS_TOKEN", "id": "__TOKEN_ID__", "gateway": "INTERNAL", "expirationDt": null }
       ],
-      "brand": null
+      "brand": "VISA"
     }
   ],
   "billing": [
@@ -61,7 +61,7 @@
       "transactionId": "__TRANSACTION_ID__",
       "installments": 1,
       "provider": "CIELO",
-      "paymentMethod": "PIX",
+      "paymentMethod": "CREDIT",
       "tax": [
         { "name": "CBS", "value": 10 }
       ]

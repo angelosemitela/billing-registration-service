@@ -92,4 +92,20 @@ public class BillEntity extends BaseAuditableEntity {
     /** Data em que o repasse foi efetivado; sempre {@code null} na criação via "/api/v1/purchases". */
     @Column(name = "PAYMENT_DT")
     private Long paymentDt;
+
+    // Colunas adicionadas na V14__add_bill_balance_and_refund_fields.sql
+    // (21/09/2026) - ver README, seção "Evoluções pedidas". Toda fatura
+    // nasce sem saldo em aberto e sem estorno - ver BillingService.
+
+    /** Valor em aberto (não pago) da fatura; sempre {@code 0} na criação. */
+    @Column(name = "BALANCE_VALUE", nullable = false, precision = 14, scale = 2)
+    private BigDecimal balanceValue;
+
+    /** Valor já estornado ao assinante; sempre {@code 0} na criação. */
+    @Column(name = "REFUND_VALUE", nullable = false, precision = 14, scale = 2)
+    private BigDecimal refundValue;
+
+    /** FK lógica para {@code T_DOMAIN_BILL_REFUND_STATUS}; sempre {@code DomainStatus.BILL_REFUND_NO_REFUND} na criação. */
+    @Column(name = "REFUND_STATUS", nullable = false)
+    private Integer refundStatus;
 }

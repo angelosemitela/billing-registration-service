@@ -24,6 +24,13 @@ import java.util.List;
  *                        {@code value} quando não há desconto vigente.
  * @param discount        descontos vigentes deste produto; {@code null} se
  *                        não houver nenhum (ver {@link QueryDiscountItem}).
+ * @param suspensionSt    {@code BACKEND_VALUE} de {@code T_DOMAIN_PRODUCT_SUSPENSION_STATUS}
+ *                        (ver README, seção "Evoluções pedidas" de 21/09/2026).
+ * @param cancChannel     canal do cancelamento (agendado ou manual); {@code null} se não houver.
+ * @param cancellationEfcDt data em que o cancelamento foi EFETIVADO; {@code null} até isso acontecer (fora do escopo desta v1).
+ * @param cancellationSt  {@code BACKEND_VALUE} de {@code T_DOMAIN_PRODUCT_CANCELLATION_STATUS}.
+ * @param cancellationDesc descrição livre do motivo do cancelamento; {@code null} se não houver.
+ * @param autoCancelSch   {@code true} quando o agendamento de cancelamento foi automático.
  */
 public record QueryProductItem(
         String productId,
@@ -49,6 +56,12 @@ public record QueryProductItem(
         String cancellationReqDt,
         String cancellationSchDt,
         BigDecimal nextBillValue,
-        List<QueryDiscountItem> discount
+        List<QueryDiscountItem> discount,
+        String suspensionSt,
+        String cancChannel,
+        String cancellationEfcDt,
+        String cancellationSt,
+        String cancellationDesc,
+        Boolean autoCancelSch
 ) {
 }

@@ -184,6 +184,14 @@ public class PurchaseQueryService {
         Set<Integer> statusIds = products.stream().map(ProductEntity::getStatus).collect(Collectors.toSet());
         Map<Integer, String> productStatusByStatusId = domainStatusLookupService.productStatuses(statusIds);
 
+        // Acrescentados em 21/09/2026 (ver README, seção "Evoluções pedidas") -
+        // mesmo padrão de lote (1 SELECT por tabela de domínio envolvida, nunca
+        // 1 por produto) já usado acima para productStatuses.
+        Set<Integer> suspensionStatusIds = products.stream().map(ProductEntity::getSuspensionStatus).collect(Collectors.toSet());
+        Map<Integer, String> suspensionStatusById = domainStatusLookupService.productSuspensionStatuses(suspensionStatusIds);
+        Set<Integer> cancellationStatusIds = products.stream().map(ProductEntity::getCancellationStatus).collect(Collectors.toSet());
+        Map<Integer, String> cancellationStatusById = domainStatusLookupService.productCancellationStatuses(cancellationStatusIds);
+
         List<Long> productIds = products.stream().map(ProductEntity::getId).toList();
         Map<Long, List<DiscountEntity>> discountsByProductId = discountRepository.findByProductIdIn(productIds).stream()
                 .collect(Collectors.groupingBy(DiscountEntity::getProductId));
@@ -193,12 +201,15 @@ public class PurchaseQueryService {
 
         return products.stream()
                 .map(product -> toProductItem(product, discountsByProductId.getOrDefault(product.getId(), List.of()),
-                        discountStatusById, productStatusByStatusId.get(product.getStatus()), now))
+                        discountStatusById, productStatusByStatusId.get(product.getStatus()), now,
+                        suspensionStatusById.get(product.getSuspensionStatus()),
+                        cancellationStatusById.get(product.getCancellationStatus())))
                 .toList();
     }
 
     private QueryProductItem toProductItem(ProductEntity product, List<DiscountEntity> productDiscounts,
-                                            Map<Integer, String> discountStatusById, String productSt, long now) {
+                                            Map<Integer, String> discountStatusById, String productSt, long now,
+                                            String suspensionSt, String cancellationSt) {
         // Desconto "vigente" (para a lista products[].discount): status
         // ativo E ainda não expirado em relação ao INSTANTE ATUAL - decisão
         // tomada com o usuário diante de uma contradição no anexo original
@@ -239,7 +250,13 @@ public class PurchaseQueryService {
                 nullableToString(product.getCancellationReqDt()),
                 nullableToString(product.getCancellationSchDt()),
                 nextBillValue,
-                emptyToNull(activeDiscounts));
+                emptyToNull(activeDiscounts),
+                suspensionSt,
+                product.getCancellationChannel(),
+                nullableToString(product.getCancellationEfcDt()),
+                cancellationSt,
+                product.getCancellationDescription(),
+                product.getAutoCancelSch());
     }
 
     private QueryDiscountItem toDiscountItem(DiscountEntity discount, String discountSt) {
@@ -363,16 +380,22 @@ public class PurchaseQueryService {
         Map<Integer, String> billStatusById = domainStatusLookupService.billStatuses(billStatusIds);
         Set<Integer> billTypeIds = bills.stream().map(BillEntity::getBillType).collect(Collectors.toSet());
         Map<Integer, String> billTypeById = domainStatusLookupService.billTypes(billTypeIds);
+        // Acrescentado em 21/09/2026 (ver README, seção "Evoluções pedidas").
+        Set<Integer> refundStatusIds = bills.stream().map(BillEntity::getRefundStatus).collect(Collectors.toSet());
+        Map<Integer, String> refundStatusById = domainStatusLookupService.billRefundStatuses(refundStatusIds);
 
         return bills.stream()
                 .map(bill -> toBillItem(bill, taxesByBillId.getOrDefault(bill.getId(), List.of()),
-                        billStatusById.get(bill.getStatus()), billTypeById.get(bill.getBillType())))
+                        billStatusById.get(bill.getStatus()), billTypeById.get(bill.getBillType()),
+                        refundStatusById.get(bill.getRefundStatus())))
                 .toList();
     }
 
-    private QueryBillItem toBillItem(BillEntity bill, List<QueryTaxItem> taxes, String billSt, String billType) {
+    private QueryBillItem toBillItem(BillEntity bill, List<QueryTaxItem> taxes, String billSt, String billType, String refundSt) {
         int installments = Integer.parseInt(bill.getInstallments());
         BigDecimal splitValue = installmentSplitService.baseInstallmentValue(bill.getChargedValue(), installments);
+        // "chargedValue - refundValue" - ver javadoc de QueryBillItem.updatedValue.
+        BigDecimal updatedValue = bill.getChargedValue().subtract(bill.getRefundValue());
 
         return new QueryBillItem(
                 AssetIdFormatter.billing(bill.getId()),
@@ -392,7 +415,11 @@ public class PurchaseQueryService {
                 bill.getPaymentMethod(),
                 billSt,
                 billType,
-                emptyToNull(taxes.stream().sorted(Comparator.comparing(QueryTaxItem::name)).toList()));
+                emptyToNull(taxes.stream().sorted(Comparator.comparing(QueryTaxItem::name)).toList()),
+                bill.getBalanceValue(),
+                bill.getRefundValue(),
+                updatedValue,
+                refundSt);
     }
 
     // ------------------------------------------------------------------

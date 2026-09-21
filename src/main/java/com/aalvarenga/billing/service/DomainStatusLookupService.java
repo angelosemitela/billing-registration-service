@@ -1,17 +1,23 @@
 package com.aalvarenga.billing.service;
 
 import com.aalvarenga.billing.entity.DomainAccountStatusEntity;
+import com.aalvarenga.billing.entity.DomainBillRefundStatusEntity;
 import com.aalvarenga.billing.entity.DomainBillStatusEntity;
 import com.aalvarenga.billing.entity.DomainBillTypeEntity;
 import com.aalvarenga.billing.entity.DomainDiscountStatusEntity;
 import com.aalvarenga.billing.entity.DomainPaymentStatusEntity;
+import com.aalvarenga.billing.entity.DomainProductCancellationStatusEntity;
 import com.aalvarenga.billing.entity.DomainProductStatusEntity;
+import com.aalvarenga.billing.entity.DomainProductSuspensionStatusEntity;
 import com.aalvarenga.billing.repository.DomainAccountStatusRepository;
+import com.aalvarenga.billing.repository.DomainBillRefundStatusRepository;
 import com.aalvarenga.billing.repository.DomainBillStatusRepository;
 import com.aalvarenga.billing.repository.DomainBillTypeRepository;
 import com.aalvarenga.billing.repository.DomainDiscountStatusRepository;
 import com.aalvarenga.billing.repository.DomainPaymentStatusRepository;
+import com.aalvarenga.billing.repository.DomainProductCancellationStatusRepository;
 import com.aalvarenga.billing.repository.DomainProductStatusRepository;
+import com.aalvarenga.billing.repository.DomainProductSuspensionStatusRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -57,6 +63,10 @@ public class DomainStatusLookupService {
     private final DomainPaymentStatusRepository paymentStatusRepository;
     private final DomainBillStatusRepository billStatusRepository;
     private final DomainBillTypeRepository billTypeRepository;
+    // Acrescentados em 21/09/2026 (V12 - ver README, seção "Evoluções pedidas").
+    private final DomainProductSuspensionStatusRepository productSuspensionStatusRepository;
+    private final DomainProductCancellationStatusRepository productCancellationStatusRepository;
+    private final DomainBillRefundStatusRepository billRefundStatusRepository;
 
     public Map<Integer, String> accountStatuses(Collection<Integer> ids) {
         return toBackendValueMap(accountStatusRepository.findAllById(ids), DomainAccountStatusEntity::getStatusId, DomainAccountStatusEntity::getBackendValue);
@@ -80,6 +90,20 @@ public class DomainStatusLookupService {
 
     public Map<Integer, String> billTypes(Collection<Integer> ids) {
         return toBackendValueMap(billTypeRepository.findAllById(ids), DomainBillTypeEntity::getId, DomainBillTypeEntity::getBackendValue);
+    }
+
+    public Map<Integer, String> productSuspensionStatuses(Collection<Integer> ids) {
+        return toBackendValueMap(productSuspensionStatusRepository.findAllById(ids),
+                DomainProductSuspensionStatusEntity::getId, DomainProductSuspensionStatusEntity::getBackendValue);
+    }
+
+    public Map<Integer, String> productCancellationStatuses(Collection<Integer> ids) {
+        return toBackendValueMap(productCancellationStatusRepository.findAllById(ids),
+                DomainProductCancellationStatusEntity::getId, DomainProductCancellationStatusEntity::getBackendValue);
+    }
+
+    public Map<Integer, String> billRefundStatuses(Collection<Integer> ids) {
+        return toBackendValueMap(billRefundStatusRepository.findAllById(ids), DomainBillRefundStatusEntity::getId, DomainBillRefundStatusEntity::getBackendValue);
     }
 
     private <T> Map<Integer, String> toBackendValueMap(List<T> entities, Function<T, Integer> idExtractor, Function<T, String> backendValueExtractor) {

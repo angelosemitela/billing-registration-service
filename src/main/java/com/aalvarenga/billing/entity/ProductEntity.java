@@ -122,4 +122,40 @@ public class ProductEntity extends BaseAuditableEntity {
      */
     @Column(name = "CANCELLATION_SCH_DT")
     private Long cancellationSchDt;
+
+    // Campos acrescentados em V13__add_product_suspension_and_cancellation_fields.sql
+    // (21/09/2026) - ver README, seção "Evoluções pedidas".
+
+    /** FK lógica para {@code T_DOMAIN_PRODUCT_SUSPENSION_STATUS} - sempre {@code DomainStatus.PRODUCT_SUSPENSION_COMPLIANT} na criação. */
+    @Column(name = "SUSPENSION_STATUS", nullable = false)
+    private Integer suspensionStatus;
+
+    /** Canal por onde o cancelamento foi solicitado; {@code null} enquanto não há cancelamento (agendado ou não) associado a este produto. */
+    @Column(name = "CANCELLATION_CHANNEL", length = 50)
+    private String cancellationChannel;
+
+    /**
+     * Data em que o cancelamento foi de fato EFETIVADO (fora do escopo
+     * desta v1 - fica sempre {@code null} na criação, igual a
+     * {@link BillEntity#getPaymentDt()}).
+     */
+    @Column(name = "CANCELLATION_EFC_DT")
+    private Long cancellationEfcDt;
+
+    /** FK lógica para {@code T_DOMAIN_PRODUCT_CANCELLATION_STATUS}. */
+    @Column(name = "CANCELLATION_STATUS", nullable = false)
+    private Integer cancellationStatus;
+
+    /** Descrição livre do motivo do cancelamento (vinda do front, quando manual); {@code null} quando não há cancelamento. */
+    @Column(name = "CANCELLATION_DESCRIPTION", length = 500)
+    private String cancellationDescription;
+
+    /**
+     * {@code true} quando o agendamento de cancelamento foi feito
+     * automaticamente pela regra {@code AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT}
+     * (mesma condição de {@link #cancellationReqDt}).
+     */
+    @Convert(converter = BooleanCharConverter.class)
+    @Column(name = "AUTO_CANCEL_SCH_B", nullable = false, length = 1)
+    private Boolean autoCancelSch;
 }

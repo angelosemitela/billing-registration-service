@@ -43,4 +43,21 @@ public final class DomainStatus {
 
     // T_DOMAIN_BILL_INSTALLMENT_STATUS
     public static final int BILL_INSTALLMENT_AWAITING_TRANSFER = 1;
+
+    // T_DOMAIN_PRODUCT_SUSPENSION_STATUS (criada em V12, a pedido do usuário
+    // em 21/09/2026 - ver README, seção "Evoluções pedidas"). Hoje só existe
+    // o valor "Adimplente": nenhum fluxo desta v1 vende um produto já
+    // inadimplente, nem marca um produto existente como tal.
+    public static final int PRODUCT_SUSPENSION_COMPLIANT = 1;
+
+    // T_DOMAIN_PRODUCT_CANCELLATION_STATUS (V12). Ver ProductService -
+    // reaproveita a MESMA condição já usada para CANCELLATION_REQ_DT/
+    // CANCELLATION_SCH_DT (V9): produto ONESHOT com vigência E o feature
+    // toggle AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT ligado.
+    public static final int PRODUCT_CANCELLATION_NO_SCHEDULES = 1;
+    public static final int PRODUCT_CANCELLATION_SCHEDULED = 2;
+
+    // T_DOMAIN_BILL_REFUND_STATUS (V12). Toda fatura nasce sem estorno -
+    // ver BillingService.persistBillings.
+    public static final int BILL_REFUND_NO_REFUND = 1;
 }

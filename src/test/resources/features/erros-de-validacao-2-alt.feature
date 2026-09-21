@@ -40,8 +40,17 @@ Funcionalidade: Validação de erros de negócio no registro de uma compra
     E a razão da resposta deve conter "<trechoEsperado>"
 
     Exemplos:
-      | campo1                  | valor1             | campo2                              |  valor2     | statusEsperado | trechoEsperado                      |
-      | product[0].type         | RECURRENCE         | product[0].isExpiriationService     |  false      | 400            | product.isExpiriationService        |
-      | product[0].isTrial      | true               | product[0].trialDays                |  0          | 400            | product.trialDays                   |
-      | product[0].isTrial      | true               | product[0].trialDays                |  teste      | 400            | Integer                             |
-      | product[0].isTrial      | true               | product[0].trialDays                |  1          | 412            | billing.chargedValue must be zero   |
+      | campo1                  | valor1             | campo2                              |  valor2     | statusEsperado | trechoEsperado                        |
+      | product[0].isTrial      | true               | product[0].trialDays                |  0          | 400            | product.trialDays                     |
+      | product[0].isTrial      | true               | product[0].trialDays                |  teste      | 400            | Integer                               |
+      | product[0].isTrial      | true               | product[0].trialDays                |  1          | 412            | billing.chargedValue must be zero     |
+      | payment[0].method       | DEBIT              | payment[0].cardNumber               | (vazio)     | 400            | payment.cardNumber                    |
+      | payment[0].method       | DEBIT              | payment[0].expiration               | (vazio)     | 400            | payment.expiration                    |
+      | payment[0].method       | DEBIT              | payment[0].expiration               | XYZ         | 400            | payment.expiration                    |
+      | payment[0].method       | DEBIT              | payment[0].expiration               | 13/31       | 400            | payment.expiration                    |
+      | payment[0].method       | DEBIT              | payment[0].expiration               | 12/22       | 400            | payment.expiration                    |
+      | payment[0].method       | DEBIT              | payment[0].isMultiple               | (vazio)     | 400            | payment.isMultiple                    |
+      | payment[0].method       | DEBIT              | payment[0].isMultiple               | XYZ         | 400            | payment                               |
+      | payment[0].method       | DEBIT              | payment[0].isMultiple               | XYZ         | 400            | payment                               |
+      | payment[0].method       | DEBIT              | payment[0].installments             | 2           | 400            | installments                          |
+      | payment[0].method       | PIX                | payment[0].installments             | 2           | 400            | installments                          |
