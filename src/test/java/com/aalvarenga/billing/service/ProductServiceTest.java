@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>Usamos a {@link RecurrenceCalculatorService} REAL (não mockada) porque
  * suas regras de cálculo já têm cobertura própria em
- * {@link com.aalvarenga.billing.util.RecurrenceCalculatorServiceTest} - aqui
+ * {@code RecurrenceCalculatorServiceTest} - aqui
  * o que importa é conferir que {@code CANCELLATION_SCH_DT} recebe
  * exatamente o mesmo valor que {@code CYCLE_END_DT}, e não recalcular a
  * regra de data de novo.
