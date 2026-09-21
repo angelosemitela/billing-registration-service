@@ -16,11 +16,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,7 +51,7 @@ class PaymentServiceTest {
 
     // Movido para fora do @BeforeEach (mesmo motivo documentado em
     // AccountServiceTest.stubAccountRepositorySave): o único teste que NÃO
-    // chama paymentRepository.save (persistPayments_nullList_returnsEmptyMap)
+    // chama paymentRepository.save (persistPayments_nullList_returnsEmptyList)
     // faria o Mockito, em modo estrito, reclamar de "stubbing desnecessário".
     private void stubPaymentRepositorySave() {
         when(paymentRepository.save(any())).thenAnswer(invocation -> {
@@ -62,8 +62,8 @@ class PaymentServiceTest {
     }
 
     @Test
-    void persistPayments_nullList_returnsEmptyMap() {
-        Map<PaymentMethod, PaymentEntity> result = service.persistPayments(null, 1L);
+    void persistPayments_nullList_returnsEmptyList() {
+        List<PaymentEntity> result = service.persistPayments(null, 1L);
 
         assertThat(result).isEmpty();
         verify(paymentRepository, never()).save(any());
@@ -72,11 +72,11 @@ class PaymentServiceTest {
     @Test
     void persistPayments_mapsAllFieldsAndKeepsInsertionOrder() {
         stubPaymentRepositorySave();
-        Map<PaymentMethod, PaymentEntity> result = service.persistPayments(
+        List<PaymentEntity> result = service.persistPayments(
                 List.of(payment(PaymentMethod.CREDIT, true, CardBrand.VISA, null), payment(PaymentMethod.PIX, false, null, null)), 1L);
 
-        assertThat(result.keySet()).containsExactly(PaymentMethod.CREDIT, PaymentMethod.PIX);
-        PaymentEntity credit = result.get(PaymentMethod.CREDIT);
+        assertThat(result).extracting(PaymentEntity::getMethod).containsExactly("CREDIT", "PIX");
+        PaymentEntity credit = result.getFirst();
         assertThat(credit.getAccountId()).isEqualTo(1L);
         assertThat(credit.getMethod()).isEqualTo("CREDIT");
         assertThat(credit.getDefaultMethod()).isTrue();
@@ -90,9 +90,29 @@ class PaymentServiceTest {
         // service rodar) - para PIX/WALLET, null deve chegar como null na
         // entidade, nunca virar uma string como "null" por engano.
         stubPaymentRepositorySave();
-        Map<PaymentMethod, PaymentEntity> result = service.persistPayments(List.of(payment(PaymentMethod.PIX, true, null, null)), 1L);
+        List<PaymentEntity> result = service.persistPayments(List.of(payment(PaymentMethod.PIX, true, null, null)), 1L);
 
-        assertThat(result.get(PaymentMethod.PIX).getBrand()).isNull();
+        assertThat(result.getFirst().getBrand()).isNull();
+    }
+
+    @Test
+    void persistPayments_twoPaymentsWithSameMethod_bothArePersistedAndBothSurviveInTheReturnedList() {
+        // Regressão do bug reportado em 21/09/2026 (ver decisoes.md): quando
+        // este método devolvia um Map<PaymentMethod, PaymentEntity>, o
+        // segundo pagamento com o mesmo method (aqui, os dois são CREDIT)
+        // SOBRESCREVIA o primeiro no mapa - mesmo os dois tendo sido
+        // gravados em T_PAYMENT - e o primeiro (que era o isDefault=true)
+        // desaparecia do resultado. Com a List, os dois devem sobreviver, na
+        // mesma ordem da requisição.
+        stubPaymentRepositorySave();
+        List<PaymentEntity> result = service.persistPayments(List.of(
+                payment(PaymentMethod.CREDIT, true, CardBrand.VISA, null),
+                payment(PaymentMethod.CREDIT, false, CardBrand.VISA, null)), 1L);
+
+        assertThat(result).hasSize(2);
+        verify(paymentRepository, times(2)).save(any());
+        assertThat(result.getFirst().getDefaultMethod()).isTrue();
+        assertThat(result.get(1).getDefaultMethod()).isFalse();
     }
 
     @Test

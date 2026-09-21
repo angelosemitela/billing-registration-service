@@ -4,15 +4,13 @@ import com.aalvarenga.billing.dto.request.PaymentRequest;
 import com.aalvarenga.billing.dto.request.TokenRequest;
 import com.aalvarenga.billing.entity.PaymentEntity;
 import com.aalvarenga.billing.entity.PaymentTokenEntity;
-import com.aalvarenga.billing.enums.PaymentMethod;
 import com.aalvarenga.billing.repository.PaymentRepository;
 import com.aalvarenga.billing.repository.PaymentTokenRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Persiste a estrutura {@code payment} da requisição.
@@ -34,12 +32,28 @@ public class PaymentService {
     /**
      * Persiste todos os métodos de pagamento (e seus tokens) da requisição.
      *
-     * @return mapa {@link PaymentMethod} -> entidade persistida, na ordem em
-     * que vieram na requisição (usado depois para vincular faturas ao método
-     * de pagamento usado e para achar o pagamento "default").
+     * <p><strong>Correção de bug (21/09/2026)</strong>: este método RETORNAVA
+     * um {@code Map<PaymentMethod, PaymentEntity>}, indexado só pelo
+     * {@code method} (CREDIT/DEBIT/PIX/WALLET). Como o schema de entrada
+     * permite MAIS DE UM pagamento com o mesmo {@code method} na mesma
+     * compra (ex: dois cartões CREDIT, um deles marcado como
+     * {@code isDefault}), o {@code Map.put} do segundo pagamento
+     * SOBRESCREVIA silenciosamente a entrada do primeiro - ambos eram
+     * gravados corretamente em {@code T_PAYMENT}, mas só o ÚLTIMO de cada
+     * método sobrevivia no mapa devolvido, quebrando tudo que dependia dele
+     * (resolução do pagamento "default", montagem da resposta, vínculo de
+     * fatura a pagamento). Ver {@code decisoes.md} para o relato completo
+     * (bug reportado com evidências de banco/requisição/resposta). Por isso
+     * agora devolvemos uma {@link List}, na mesma ordem de entrada, SEM
+     * perder nenhum pagamento persistido - quem usa o resultado decide como
+     * localizar um pagamento específico (ver {@link PurchaseOrchestrationService}
+     * e {@link BillingService}).
+     *
+     * @return lista de entidades persistidas, na ordem em que vieram na
+     * requisição.
      */
-    public Map<PaymentMethod, PaymentEntity> persistPayments(List<PaymentRequest> payments, Long accountId) {
-        Map<PaymentMethod, PaymentEntity> persisted = new LinkedHashMap<>();
+    public List<PaymentEntity> persistPayments(List<PaymentRequest> payments, Long accountId) {
+        List<PaymentEntity> persisted = new ArrayList<>();
         if (payments == null) {
             return persisted;
         }
@@ -58,7 +72,7 @@ public class PaymentService {
                     .build());
 
             persistTokens(request.token(), entity.getId());
-            persisted.put(request.method(), entity);
+            persisted.add(entity);
         }
         return persisted;
     }

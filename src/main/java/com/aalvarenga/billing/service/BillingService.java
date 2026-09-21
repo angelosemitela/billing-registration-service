@@ -7,6 +7,7 @@ import com.aalvarenga.billing.entity.BillInstallmentEntity;
 import com.aalvarenga.billing.entity.BillTaxEntity;
 import com.aalvarenga.billing.entity.PaymentEntity;
 import com.aalvarenga.billing.entity.ProductEntity;
+import com.aalvarenga.billing.enums.PaymentMethod;
 import com.aalvarenga.billing.repository.BillInstallmentRepository;
 import com.aalvarenga.billing.repository.BillRepository;
 import com.aalvarenga.billing.repository.BillTaxRepository;
@@ -18,6 +19,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Persiste a estrutura {@code billing} da requisição.
@@ -41,12 +43,13 @@ public class BillingService {
      *
      * @param billings faturas da requisição, já validadas
      * @param products mapa {@code codeId} -> produto já persistido (ver {@link ProductService})
-     * @param payments mapa {@link com.aalvarenga.billing.enums.PaymentMethod} -> pagamento já persistido (ver {@link PaymentService})
+     * @param payments pagamentos já persistidos desta compra, na ordem da
+     *                 requisição (ver {@link PaymentService})
      * @return faturas efetivamente persistidas (na mesma ordem da requisição)
      */
     public List<BillEntity> persistBillings(List<BillingRequest> billings,
                                              Map<String, ProductEntity> products,
-                                             Map<com.aalvarenga.billing.enums.PaymentMethod, PaymentEntity> payments) {
+                                             List<PaymentEntity> payments) {
         List<BillEntity> persisted = new ArrayList<>();
         if (billings == null) {
             return persisted;
@@ -57,10 +60,7 @@ public class BillingService {
             }
 
             ProductEntity product = products.get(request.codeId());
-            // O pagamento vinculado a esta fatura é aquele cujo METHOD bate com
-            // billing.paymentMethod (já garantido pela validação - ver
-            // PurchaseValidationService.validateBillings).
-            PaymentEntity payment = payments.get(request.paymentMethod());
+            PaymentEntity payment = findPaymentByMethod(payments, request.paymentMethod());
 
             BillEntity bill = billRepository.save(BillEntity.builder()
                     .codeId(request.codeId())
@@ -103,6 +103,32 @@ public class BillingService {
             persisted.add(bill);
         }
         return persisted;
+    }
+
+    /**
+     * Encontra, entre os pagamentos já persistidos desta compra, aquele que
+     * deve ficar vinculado a uma fatura com este {@code paymentMethod}.
+     *
+     * <p><strong>Limitação conhecida do schema de entrada</strong> (registrada
+     * junto com a correção do bug de 21/09/2026 - ver {@code decisoes.md}):
+     * {@code billing.paymentMethod} é só o ENUM do método (CREDIT/DEBIT/PIX/
+     * WALLET), sem nenhum campo que aponte para um cartão ESPECÍFICO. Quando
+     * a compra tem 2+ pagamentos com o MESMO method (ex: dois cartões
+     * CREDIT), não há como saber, só pelo payload atual, qual dos dois esta
+     * fatura deveria usar - por isso ficamos com o critério mais simples e
+     * mais prático de auditar: o PRIMEIRO da lista com aquele method (mesma
+     * ordem em que vieram na requisição), que é também o mesmo critério já
+     * usado na validação (ver {@link com.aalvarenga.billing.util.PurchaseLookupUtils#findPaymentByMethod}).
+     * Uma evolução futura mais correta seria o próprio payload de entrada
+     * referenciar o pagamento explicitamente (ex: um {@code paymentIndex} ou
+     * um ID de token em {@code billing}), em vez de inferir por method.
+     */
+    private PaymentEntity findPaymentByMethod(List<PaymentEntity> payments, PaymentMethod method) {
+        String methodName = method.name();
+        Optional<PaymentEntity> match = payments.stream()
+                .filter(payment -> methodName.equals(payment.getMethod()))
+                .findFirst();
+        return match.orElse(null);
     }
 
     private void persistTaxes(List<TaxRequest> taxes, Long billId) {

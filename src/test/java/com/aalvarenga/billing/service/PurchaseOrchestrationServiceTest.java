@@ -20,7 +20,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -101,7 +100,7 @@ class PurchaseOrchestrationServiceTest {
     @Test
     void persistAndBuildResponse_noBillingAndNoCharge_paymentAndBillingItemsAreNull() {
         when(productService.persistProducts(any(), anyLong(), any(), any(), eq(ACCOUNT_ID))).thenReturn(Map.of("1", productEntity()));
-        when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(new LinkedHashMap<>());
+        when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(List.of());
         when(billingService.persistBillings(any(), any(), any())).thenReturn(List.of());
 
         PurchaseResponse response = service.persistAndBuildResponse(purchaseRequest(null, null), new ValidatedPurchaseContext(1_800_000_000_000L, null));
@@ -115,8 +114,7 @@ class PurchaseOrchestrationServiceTest {
 
     @Test
     void persistAndBuildResponse_hasEffectiveChargeAndPayments_paymentItemsArePopulated() {
-        Map<PaymentMethod, PaymentEntity> payments = new LinkedHashMap<>();
-        payments.put(PaymentMethod.CREDIT, PaymentEntity.builder().id(5L).method("CREDIT").defaultMethod(true).build());
+        List<PaymentEntity> payments = List.of(PaymentEntity.builder().id(5L).method("CREDIT").defaultMethod(true).build());
         when(productService.persistProducts(any(), anyLong(), any(), any(), eq(ACCOUNT_ID))).thenReturn(Map.of("1", productEntity()));
         when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(payments);
         when(billingService.persistBillings(any(), any(), any())).thenReturn(List.of());
@@ -136,8 +134,7 @@ class PurchaseOrchestrationServiceTest {
         // pagamentos persistidos, se não houve cobrança efetiva o campo
         // "payment" da resposta continua null (ver javadoc de
         // PurchaseOrchestrationService.buildSuccessResponse).
-        Map<PaymentMethod, PaymentEntity> payments = new LinkedHashMap<>();
-        payments.put(PaymentMethod.CREDIT, PaymentEntity.builder().id(5L).method("CREDIT").defaultMethod(true).build());
+        List<PaymentEntity> payments = List.of(PaymentEntity.builder().id(5L).method("CREDIT").defaultMethod(true).build());
         when(productService.persistProducts(any(), anyLong(), any(), any(), eq(ACCOUNT_ID))).thenReturn(Map.of("1", productEntity()));
         when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(payments);
         when(billingService.persistBillings(any(), any(), any())).thenReturn(List.of());
@@ -151,7 +148,7 @@ class PurchaseOrchestrationServiceTest {
     void persistAndBuildResponse_withBills_billingItemsArePopulatedWithProductName() {
         BillEntity bill = BillEntity.builder().id(9L).codeId("1").paymentMethod("CREDIT").chargedValue(BigDecimal.TEN).currency("BRL").build();
         when(productService.persistProducts(any(), anyLong(), any(), any(), eq(ACCOUNT_ID))).thenReturn(Map.of("1", productEntity()));
-        when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(new LinkedHashMap<>());
+        when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(List.of());
         when(billingService.persistBillings(any(), any(), any())).thenReturn(List.of(bill));
 
         PurchaseResponse response = service.persistAndBuildResponse(
@@ -166,8 +163,7 @@ class PurchaseOrchestrationServiceTest {
 
     @Test
     void persistAndBuildResponse_noPaymentMarkedAsDefault_defaultPaymentPassedToProductServiceIsNull() {
-        Map<PaymentMethod, PaymentEntity> payments = new LinkedHashMap<>();
-        payments.put(PaymentMethod.PIX, PaymentEntity.builder().id(5L).method("PIX").defaultMethod(false).build());
+        List<PaymentEntity> payments = List.of(PaymentEntity.builder().id(5L).method("PIX").defaultMethod(false).build());
         when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(payments);
         when(productService.persistProducts(any(), anyLong(), any(), isNull(), eq(ACCOUNT_ID))).thenReturn(Map.of("1", productEntity()));
         when(billingService.persistBillings(any(), any(), any())).thenReturn(List.of());
@@ -175,5 +171,31 @@ class PurchaseOrchestrationServiceTest {
         service.persistAndBuildResponse(purchaseRequest(List.of(), null), new ValidatedPurchaseContext(1_800_000_000_000L, null));
 
         verify(productService).persistProducts(any(), anyLong(), any(), isNull(), eq(ACCOUNT_ID));
+    }
+
+    @Test
+    void persistAndBuildResponse_twoPaymentsWithSameMethod_defaultOneIsStillFoundAndBothAppearInResponse() {
+        // Regressão do bug reportado em 21/09/2026 (ver decisoes.md): antes da
+        // correção, paymentService.persistPayments devolvia um
+        // Map<PaymentMethod, PaymentEntity> - com 2 pagamentos CREDIT na
+        // mesma compra, o segundo sobrescrevia o primeiro no mapa e o
+        // pagamento isDefault=true (o primeiro) "desaparecia": o defaultPayment
+        // repassado a productService.persistProducts virava null (por isso
+        // T_PRODUCT.DEFAULT_PAYMENT_ID ficava null) e a resposta só trazia 1
+        // dos 2 pagamentos. Com a List, os dois sobrevivem e o default
+        // continua sendo encontrado independente da ordem/method repetido.
+        PaymentEntity firstIsDefault = PaymentEntity.builder().id(60L).method("CREDIT").defaultMethod(true).build();
+        PaymentEntity secondNotDefault = PaymentEntity.builder().id(61L).method("CREDIT").defaultMethod(false).build();
+        List<PaymentEntity> payments = List.of(firstIsDefault, secondNotDefault);
+        when(paymentService.persistPayments(any(), eq(ACCOUNT_ID))).thenReturn(payments);
+        when(productService.persistProducts(any(), anyLong(), any(), eq(firstIsDefault), eq(ACCOUNT_ID))).thenReturn(Map.of("1", productEntity()));
+        when(billingService.persistBillings(any(), any(), any())).thenReturn(List.of());
+
+        PurchaseResponse response = service.persistAndBuildResponse(
+                purchaseRequest(List.of(), List.of(billingRequest("1", BigDecimal.TEN))),
+                new ValidatedPurchaseContext(1_800_000_000_000L, null));
+
+        verify(productService).persistProducts(any(), anyLong(), any(), eq(firstIsDefault), eq(ACCOUNT_ID));
+        assertThat(response.payment()).hasSize(2);
     }
 }

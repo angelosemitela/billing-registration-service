@@ -77,7 +77,12 @@ class BillingServiceTest {
     }
 
     private PaymentEntity payment() {
-        return PaymentEntity.builder().id(PAYMENT_ID).build();
+        // method precisa bater com o PaymentMethod.CREDIT fixo do helper
+        // billing(...) abaixo - desde a correção de 21/09/2026,
+        // BillingService.findPaymentByMethod compara pelo method GRAVADO na
+        // entidade (não mais por uma chave de Map externa), então um
+        // PaymentEntity "solto" sem method não seria mais encontrado.
+        return PaymentEntity.builder().id(PAYMENT_ID).method("CREDIT").build();
     }
 
     private BillingRequest billing(String codeId, BigDecimal chargedValue, int installments, List<TaxRequest> taxes) {
@@ -87,7 +92,7 @@ class BillingServiceTest {
 
     @Test
     void persistBillings_nullList_returnsEmptyList() {
-        List<BillEntity> result = service.persistBillings(null, Map.of(), Map.of());
+        List<BillEntity> result = service.persistBillings(null, Map.of(), List.of());
 
         assertThat(result).isEmpty();
         verify(billRepository, never()).save(any());
@@ -97,7 +102,7 @@ class BillingServiceTest {
     void persistBillings_chargedValueZero_isSkippedEntirely() {
         List<BillingRequest> billings = List.of(billing("1", BigDecimal.ZERO, 1, null));
 
-        List<BillEntity> result = service.persistBillings(billings, Map.of("1", product()), Map.of(PaymentMethod.CREDIT, payment()));
+        List<BillEntity> result = service.persistBillings(billings, Map.of("1", product()), List.of(payment()));
 
         assertThat(result).isEmpty();
         verify(billRepository, never()).save(any());
@@ -108,7 +113,7 @@ class BillingServiceTest {
         stubBillRepositorySave();
         List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 1, null));
 
-        List<BillEntity> result = service.persistBillings(billings, Map.of("1", product()), Map.of(PaymentMethod.CREDIT, payment()));
+        List<BillEntity> result = service.persistBillings(billings, Map.of("1", product()), List.of(payment()));
 
         assertThat(result).hasSize(1);
         BillEntity bill = result.getFirst();
@@ -128,7 +133,7 @@ class BillingServiceTest {
         stubBillRepositorySave();
         List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 1, null));
 
-        BillEntity bill = service.persistBillings(billings, Map.of("1", product()), Map.of(PaymentMethod.CREDIT, payment())).getFirst();
+        BillEntity bill = service.persistBillings(billings, Map.of("1", product()), List.of(payment())).getFirst();
 
         assertThat(bill.getBalanceValue()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(bill.getRefundValue()).isEqualByComparingTo(BigDecimal.ZERO);
@@ -136,13 +141,13 @@ class BillingServiceTest {
     }
 
     @Test
-    void persistBillings_paymentMethodNotFoundInMap_paymentIdIsNull() {
+    void persistBillings_paymentMethodNotFoundInList_paymentIdIsNull() {
         // Caso raro (billing sem nenhum payment persistido correspondente) -
         // o serviço não deve lançar NPE, só gravar paymentId nulo.
         stubBillRepositorySave();
         List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 1, null));
 
-        BillEntity bill = service.persistBillings(billings, Map.of("1", product()), Map.of()).getFirst();
+        BillEntity bill = service.persistBillings(billings, Map.of("1", product()), List.of()).getFirst();
 
         assertThat(bill.getPaymentId()).isNull();
     }
@@ -153,7 +158,7 @@ class BillingServiceTest {
         List<TaxRequest> taxes = List.of(new TaxRequest("ISS", new BigDecimal("5.00")), new TaxRequest("ICMS", new BigDecimal("3.00")));
         List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 1, taxes));
 
-        service.persistBillings(billings, Map.of("1", product()), Map.of(PaymentMethod.CREDIT, payment()));
+        service.persistBillings(billings, Map.of("1", product()), List.of(payment()));
 
         verify(billTaxRepository, times(2)).save(any());
     }
@@ -163,7 +168,7 @@ class BillingServiceTest {
         stubBillRepositorySave();
         List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 1, null));
 
-        service.persistBillings(billings, Map.of("1", product()), Map.of(PaymentMethod.CREDIT, payment()));
+        service.persistBillings(billings, Map.of("1", product()), List.of(payment()));
 
         verify(billInstallmentRepository, never()).save(any());
     }
@@ -173,11 +178,31 @@ class BillingServiceTest {
         stubBillRepositorySave();
         List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 3, null));
 
-        service.persistBillings(billings, Map.of("1", product()), Map.of(PaymentMethod.CREDIT, payment()));
+        service.persistBillings(billings, Map.of("1", product()), List.of(payment()));
 
         ArgumentCaptor<BillInstallmentEntity> captor = ArgumentCaptor.forClass(BillInstallmentEntity.class);
         verify(billInstallmentRepository, times(3)).save(captor.capture());
         assertThat(captor.getAllValues()).extracting(BillInstallmentEntity::getInstallment).containsExactly(1, 2, 3);
         assertThat(captor.getAllValues()).allSatisfy(installment -> assertThat(installment.getTotalInstallment()).isEqualTo(3));
+    }
+
+    @Test
+    void persistBillings_twoPaymentsWithSameMethod_linksToTheFirstOneInRequestOrder() {
+        // Regressão do bug reportado em 21/09/2026 (ver decisoes.md) + a
+        // decisão de desempate documentada no javadoc de
+        // BillingService.findPaymentByMethod: quando 2+ pagamentos
+        // compartilham o mesmo method, a fatura fica vinculada ao PRIMEIRO
+        // deles na ordem da requisição - nunca ao último, e nunca lança NPE.
+        stubBillRepositorySave();
+        // billing(...) usa PaymentMethod.CREDIT fixo (ver helper acima) - os
+        // dois pagamentos precisam ter method="CREDIT" para os dois serem
+        // candidatos válidos ao vínculo.
+        PaymentEntity first = PaymentEntity.builder().id(PAYMENT_ID).method("CREDIT").build();
+        PaymentEntity second = PaymentEntity.builder().id(PAYMENT_ID + 1).method("CREDIT").build();
+        List<BillingRequest> billings = List.of(billing("1", new BigDecimal("100.00"), 1, null));
+
+        BillEntity bill = service.persistBillings(billings, Map.of("1", product()), List.of(first, second)).getFirst();
+
+        assertThat(bill.getPaymentId()).isEqualTo(first.getId());
     }
 }

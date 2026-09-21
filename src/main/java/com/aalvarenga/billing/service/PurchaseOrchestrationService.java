@@ -11,7 +11,6 @@ import com.aalvarenga.billing.entity.AccountEntity;
 import com.aalvarenga.billing.entity.BillEntity;
 import com.aalvarenga.billing.entity.PaymentEntity;
 import com.aalvarenga.billing.entity.ProductEntity;
-import com.aalvarenga.billing.enums.PaymentMethod;
 import com.aalvarenga.billing.util.AssetIdFormatter;
 import com.aalvarenga.billing.util.PurchaseLookupUtils;
 import lombok.RequiredArgsConstructor;
@@ -54,8 +53,15 @@ public class PurchaseOrchestrationService {
         accountService.insertAddresses(request.account().getFirst().address(), account.getId());
         accountService.insertPhones(request.account().getFirst().phone(), account.getId());
 
-        Map<PaymentMethod, PaymentEntity> payments = paymentService.persistPayments(request.payment(), account.getId());
-        PaymentEntity defaultPayment = payments.values().stream()
+        // Correção de bug (21/09/2026): "payments" já foi uma List desde o
+        // início aqui - o bug estava dentro de PaymentService.persistPayments,
+        // que devolvia um Map<PaymentMethod, PaymentEntity> e perdia pagamentos
+        // quando 2+ compartilhavam o mesmo method (ver javadoc de
+        // PaymentService.persistPayments para o relato completo). Com a List,
+        // este filtro por isDefault=true agora sempre encontra o pagamento
+        // default de verdade, mesmo quando ele compartilha method com outro.
+        List<PaymentEntity> payments = paymentService.persistPayments(request.payment(), account.getId());
+        PaymentEntity defaultPayment = payments.stream()
                 .filter(p -> Boolean.TRUE.equals(p.getDefaultMethod()))
                 .findFirst()
                 .orElse(null);
@@ -71,7 +77,7 @@ public class PurchaseOrchestrationService {
     private PurchaseResponse buildSuccessResponse(PurchaseRequest request,
                                                    AccountEntity account,
                                                    Map<String, ProductEntity> products,
-                                                   Map<PaymentMethod, PaymentEntity> payments,
+                                                   List<PaymentEntity> payments,
                                                    List<BillEntity> bills) {
         List<AccountResponseItem> accountItems = List.of(new AccountResponseItem(AssetIdFormatter.account(account.getId())));
 
@@ -85,7 +91,7 @@ public class PurchaseOrchestrationService {
 
         List<PaymentResponseItem> paymentItems = (!hasEffectiveCharge || payments.isEmpty())
                 ? null
-                : payments.values().stream().map(this::toPaymentResponseItem).toList();
+                : payments.stream().map(this::toPaymentResponseItem).toList();
 
         List<BillingResponseItem> billingItems = bills.isEmpty()
                 ? null
