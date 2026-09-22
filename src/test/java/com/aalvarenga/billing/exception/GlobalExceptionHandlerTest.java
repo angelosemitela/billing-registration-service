@@ -1,8 +1,11 @@
 package com.aalvarenga.billing.exception;
 
+import com.aalvarenga.billing.dto.request.CancellationRequest;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
+import com.aalvarenga.billing.dto.response.CancellationResponse;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
 import com.aalvarenga.billing.dto.response.QueryResponse;
+import com.aalvarenga.billing.enums.CancellationType;
 import com.aalvarenga.billing.enums.ResultStatus;
 import com.aalvarenga.billing.service.RequestLogService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -133,6 +136,56 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void handleMalformedJson_onCancelEndpoint_returnsCancellationResponseShapeInstead() {
+        // Mesma exceção, mas a URI é a do cancelamento (22/09/2026) - o
+        // corpo do erro precisa vir no formato de CancellationResponse, não
+        // no de PurchaseResponse - ver javadoc de handleMalformedJson.
+        when(httpServletRequest.getRequestURI()).thenReturn("/api/v1/purchases/cancel");
+        HttpMessageNotReadableException ex = mock(HttpMessageNotReadableException.class);
+        when(ex.getMessage()).thenReturn("Unexpected token");
+        when(ex.getCause()).thenReturn(null);
+
+        ResponseEntity<Object> response = handler.handleMalformedJson(ex, httpServletRequest);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isInstanceOf(CancellationResponse.class);
+        CancellationResponse body = (CancellationResponse) response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.result()).isEqualTo(ResultStatus.ERROR);
+        assertThat(body.reason()).contains("Unexpected token");
+        // Nenhum protocolo/productId disponíveis nesse ponto - o Jackson
+        // nem conseguiu montar o CancellationRequest.
+        assertThat(body.protocol()).isNull();
+        assertThat(body.productId()).isNull();
+    }
+
+    @Test
+    void handleBeanValidation_withCancellationRequestTarget_returnsCancellationResponseShapeAndLogs() {
+        CancellationRequest cancellationRequest = new CancellationRequest(
+                "WEB", "123", "PROTO-CANCEL-1", "PROD_1", CancellationType.IMMEDIATE, null, false, null);
+
+        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
+        BindingResult bindingResult = mock(BindingResult.class);
+        FieldError fieldError = new FieldError("cancellationRequest", "channel", "channel is required");
+        when(ex.getBindingResult()).thenReturn(bindingResult);
+        when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
+        when(bindingResult.getTarget()).thenReturn(cancellationRequest);
+        when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
+
+        ResponseEntity<Object> response = handler.handleBeanValidation(ex);
+        CancellationResponse body = (CancellationResponse) response.getBody();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(body).isNotNull();
+        assertThat(body.reason()).isEqualTo("channel: channel is required");
+        assertThat(body.protocol()).isEqualTo("PROTO-CANCEL-1");
+        assertThat(body.productId()).isEqualTo("PROD_1");
+        assertThat(body.inputType()).isEqualTo(CancellationType.IMMEDIATE);
+        verify(requestLogService).log("PROTO-CANCEL-1", "ERROR", "400", "channel: channel is required",
+                "{\"json\":true}", "{\"json\":true}");
+    }
+
+    @Test
     void handleBeanValidation_withRecoverableProtocol_logsTheAttempt() {
         PurchaseRequest purchaseRequest = new PurchaseRequest(
                 "WEB", "123", "PROTO-1", List.of(), List.of(), List.of(), List.of());
@@ -145,8 +198,8 @@ class GlobalExceptionHandlerTest {
         when(bindingResult.getTarget()).thenReturn(purchaseRequest);
         when(objectMapper.writeValueAsString(any())).thenReturn("{\"json\":true}");
 
-        ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
-        PurchaseResponse body = response.getBody();
+        ResponseEntity<Object> response = handler.handleBeanValidation(ex);
+        PurchaseResponse body = (PurchaseResponse) response.getBody();
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(body).isNotNull();
@@ -169,8 +222,8 @@ class GlobalExceptionHandlerTest {
         // para recuperar, então não devemos tentar logar.
         when(bindingResult.getTarget()).thenReturn(null);
 
-        ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
-        PurchaseResponse body = response.getBody();
+        ResponseEntity<Object> response = handler.handleBeanValidation(ex);
+        PurchaseResponse body = (PurchaseResponse) response.getBody();
 
         assertThat(body).isNotNull();
         assertThat(body.protocol()).isNull();
@@ -186,8 +239,8 @@ class GlobalExceptionHandlerTest {
         when(bindingResult.getFieldErrors()).thenReturn(List.of());
         when(bindingResult.getTarget()).thenReturn(null);
 
-        ResponseEntity<PurchaseResponse> response = handler.handleBeanValidation(ex);
-        PurchaseResponse body = response.getBody();
+        ResponseEntity<Object> response = handler.handleBeanValidation(ex);
+        PurchaseResponse body = (PurchaseResponse) response.getBody();
 
         assertThat(body).isNotNull();
         assertThat(body.reason()).isEqualTo("Invalid request body");

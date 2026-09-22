@@ -1,9 +1,12 @@
 package com.aalvarenga.billing.controller;
 
+import com.aalvarenga.billing.dto.request.CancellationRequest;
 import com.aalvarenga.billing.dto.request.PurchaseQueryRequest;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
+import com.aalvarenga.billing.dto.response.CancellationResponse;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
 import com.aalvarenga.billing.dto.response.QueryResponse;
+import com.aalvarenga.billing.service.CancellationService;
 import com.aalvarenga.billing.service.PurchaseQueryService;
 import com.aalvarenga.billing.service.PurchaseService;
 import jakarta.validation.Valid;
@@ -32,6 +35,7 @@ public class PurchaseController {
 
     private final PurchaseService purchaseService;
     private final PurchaseQueryService purchaseQueryService;
+    private final CancellationService cancellationService;
 
     /**
      * Registra uma compra/faturamento.
@@ -64,5 +68,21 @@ public class PurchaseController {
     @PostMapping("/query")
     public ResponseEntity<QueryResponse> queryPurchaseData(@RequestBody PurchaseQueryRequest request) {
         return purchaseQueryService.process(request);
+    }
+
+    /**
+     * Cancela um produto (imediatamente, agendado para o fim do ciclo, ou
+     * desiste de um cancelamento agendado), com estorno opcional das
+     * faturas associadas.
+     *
+     * <p>Recebido de OUTROS sistemas (não do fluxo interno de compra) - por
+     * isso é modelado como um recurso próprio dentro do mesmo domínio
+     * "purchases" (mesma convenção de agrupamento já usada para
+     * {@code /query}), em vez de um novo controller: ver decisoes.md para o
+     * racional completo da escolha do caminho {@code /cancel}.
+     */
+    @PostMapping("/cancel")
+    public ResponseEntity<CancellationResponse> cancelPurchase(@Valid @RequestBody CancellationRequest request) {
+        return cancellationService.process(request);
     }
 }

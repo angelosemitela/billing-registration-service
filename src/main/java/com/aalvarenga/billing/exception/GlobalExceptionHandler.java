@@ -1,6 +1,8 @@
 package com.aalvarenga.billing.exception;
 
+import com.aalvarenga.billing.dto.request.CancellationRequest;
 import com.aalvarenga.billing.dto.request.PurchaseRequest;
+import com.aalvarenga.billing.dto.response.CancellationResponse;
 import com.aalvarenga.billing.dto.response.PurchaseResponse;
 import com.aalvarenga.billing.dto.response.QueryResponse;
 import com.aalvarenga.billing.service.RequestLogService;
@@ -51,24 +53,30 @@ public class GlobalExceptionHandler {
      * este {@code @RestControllerAdvice} é GLOBAL - o Spring despacha
      * {@link HttpMessageNotReadableException} para cá não importa qual
      * controller/endpoint a lançou, então um único método precisa saber
-     * responder tanto {@code POST /api/v1/purchases} (contrato
-     * {@link PurchaseResponse}, com {@code protocol}) quanto
-     * {@code POST /api/v1/purchases/query} (contrato {@link QueryResponse},
-     * sem {@code protocol}, com {@code products}/{@code bill} no lugar de
-     * {@code product}/{@code billing}). Dá pra registrar dois
-     * {@code @ExceptionHandler} para a MESMA exceção só diferenciando por
-     * {@code produces}/tipo de mídia, o que aqui não se aplica (os dois
-     * endpoints produzem {@code application/json}) - então decidimos pelo
-     * {@code request URI}, que está sempre disponível independente de qual
-     * DTO o Jackson tentou (e falhou) construir.
+     * responder {@code POST /api/v1/purchases} (contrato
+     * {@link PurchaseResponse}, com {@code protocol}), {@code POST
+     * /api/v1/purchases/query} (contrato {@link QueryResponse}, sem
+     * {@code protocol}, com {@code products}/{@code bill} no lugar de
+     * {@code product}/{@code billing}) e, desde 22/09/2026, {@code POST
+     * /api/v1/purchases/cancel} (contrato {@link CancellationResponse}).
+     * Dá pra registrar um {@code @ExceptionHandler} por endpoint só
+     * diferenciando por {@code produces}/tipo de mídia, o que aqui não se
+     * aplica (os três endpoints produzem {@code application/json}) - então
+     * decidimos pelo {@code request URI}, que está sempre disponível
+     * independente de qual DTO o Jackson tentou (e falhou) construir.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Object> handleMalformedJson(HttpMessageNotReadableException ex, HttpServletRequest request) {
         log.warn("Malformed request body: {}", ex.getMessage());
         String reason = "Malformed request body: " + rootMessage(ex);
-        Object response = isQueryEndpoint(request)
-                ? QueryResponse.error("400", reason)
-                : PurchaseResponse.error("400", reason, null);
+        Object response;
+        if (isQueryEndpoint(request)) {
+            response = QueryResponse.error("400", reason);
+        } else if (isCancelEndpoint(request)) {
+            response = CancellationResponse.error("400", reason, null, null, null);
+        } else {
+            response = PurchaseResponse.error("400", reason, null);
+        }
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
@@ -76,30 +84,45 @@ public class GlobalExceptionHandler {
         return request.getRequestURI().endsWith("/query");
     }
 
+    private boolean isCancelEndpoint(HttpServletRequest request) {
+        return request.getRequestURI().endsWith("/cancel");
+    }
+
     /**
      * Falha de Bean Validation (ex: {@code channel} ausente). Diferente do
-     * caso acima, aqui o objeto {@link PurchaseRequest} FOI construído com
-     * sucesso antes da validação falhar, então conseguimos recuperar o
-     * protocolo original e logar a tentativa normalmente.
+     * caso acima, aqui o objeto de entrada FOI construído com sucesso antes
+     * da validação falhar, então conseguimos recuperar o protocolo original
+     * e logar a tentativa normalmente.
      *
-     * <p>Este handler é exclusivo de {@code POST /api/v1/purchases}: o
-     * controller só usa {@code @Valid} nesse método
-     * ({@code PurchaseController.registerPurchase}) - o corpo da consulta
-     * de dados ({@code PurchaseQueryRequest}) não tem nenhuma anotação de
-     * Bean Validation de propósito (ver javadoc da classe), então
+     * <p>Este handler cobre os dois endpoints que usam {@code @Valid} no
+     * controller: {@code POST /api/v1/purchases} ({@link PurchaseRequest})
+     * e, desde 22/09/2026, {@code POST /api/v1/purchases/cancel}
+     * ({@link CancellationRequest}) - o corpo da consulta de dados
+     * ({@code PurchaseQueryRequest}) não tem nenhuma anotação de Bean
+     * Validation de propósito (ver javadoc da classe), então
      * {@link MethodArgumentNotValidException} nunca é lançada para
-     * {@code POST /api/v1/purchases/query}.
+     * {@code POST /api/v1/purchases/query}. Diferenciamos pelo TIPO do
+     * objeto que falhou a validação (via pattern matching de
+     * {@code instanceof}) em vez de pelo {@code request URI} (diferente de
+     * {@link #handleMalformedJson}) porque aqui já temos o objeto em mãos -
+     * checar o tipo dele é mais direto do que precisar injetar
+     * {@code HttpServletRequest} só para isso.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<PurchaseResponse> handleBeanValidation(MethodArgumentNotValidException ex) {
+    public ResponseEntity<Object> handleBeanValidation(MethodArgumentNotValidException ex) {
         String reason = ex.getBindingResult().getFieldErrors().stream()
                 .findFirst()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .orElse("Invalid request body");
 
+        Object target = ex.getBindingResult().getTarget();
+        if (target instanceof CancellationRequest cancellationRequest) {
+            return handleCancellationBeanValidation(cancellationRequest, reason);
+        }
+
         String protocol = null;
         String inputJson = null;
-        if (ex.getBindingResult().getTarget() instanceof PurchaseRequest purchaseRequest) {
+        if (target instanceof PurchaseRequest purchaseRequest) {
             protocol = purchaseRequest.protocol();
             inputJson = toJsonSafely(purchaseRequest);
         }
@@ -109,6 +132,18 @@ public class GlobalExceptionHandler {
         if (protocol != null) {
             requestLogService.log(protocol, response.result().name(), response.code(), response.reason(),
                     inputJson, toJsonSafely(response));
+        }
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    private ResponseEntity<Object> handleCancellationBeanValidation(CancellationRequest cancellationRequest, String reason) {
+        String protocol = cancellationRequest.protocolId();
+        CancellationResponse response = CancellationResponse.error("400", reason, protocol, cancellationRequest.productId(), cancellationRequest.type());
+
+        if (protocol != null) {
+            requestLogService.log(protocol, response.result().name(), response.code(), response.reason(),
+                    toJsonSafely(cancellationRequest), toJsonSafely(response));
         }
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);

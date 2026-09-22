@@ -181,6 +181,25 @@ public class PurchaseApiSteps {
         assertThat(lastResponse.jsonPath().getString("reason")).contains(trechoEsperado);
     }
 
+    /**
+     * Exposto para {@code CancellationApiSteps} recuperar {@code product[0].id}/
+     * {@code billing[0].id}/{@code billing[0].chargedValue} da compra que
+     * antecede cada cenário de cancelamento (ver {@code cancelamento.feature},
+     * pedido do usuário em 22/09/2026: "antes da execução do cancelamento,
+     * deve-se criar a massa com o payload de exemplo já implementado").
+     *
+     * <p>Em vez de duplicar o passo "a compra é registrada via POST..." em
+     * outra classe (o que o Cucumber rejeitaria como definição de passo
+     * ambígua/duplicada, já que o TEXTO Gherkin precisa ser único em toda a
+     * suíte), {@code CancellationApiSteps} injeta esta MESMA classe como
+     * dependência - o cucumber-spring garante que é a MESMA instância desta
+     * classe usada no restante do cenário (ambas são beans "por cenário" do
+     * mesmo contexto Spring - ver javadoc de {@code SpringIntegrationConfig}).
+     */
+    public Response getPurchaseResponse() {
+        return purchaseResponse;
+    }
+
     // ------------------------------------------------------------------
     // Assertions diretas no banco (passo 2 do ciclo pedido: "validação dos
     // dados persistidos em base") - via os MESMOS repositórios Spring Data

@@ -22,6 +22,7 @@ design tomadas e as inconsistências encontradas na especificação original.
 - [Arquitetura](#arquitetura)
 - [Endpoint da API](#endpoint-da-api)
 - [Consulta de dados (`POST /api/v1/purchases/query`)](#consulta-de-dados-post-apiv1purchasesquery)
+- [Cancelamento de produto (`POST /api/v1/purchases/cancel`)](#cancelamento-de-produto-post-apiv1purchasescancel)
 - [Banco de dados](#banco-de-dados)
 - [Inconsistências encontradas na especificação e decisões tomadas](#inconsistências-encontradas-na-especificação-e-decisões-tomadas)
 - [Limitações conhecidas](#limitações-conhecidas)
@@ -312,6 +313,179 @@ unitários com Mockito (`PurchaseQueryValidationServiceTest`,
 `PurchaseQueryServiceTest`, `MaskingUtilTest`), sem nenhum teste de
 integração com banco.
 
+## Cancelamento de produto (`POST /api/v1/purchases/cancel`)
+
+```
+POST /api/v1/purchases/cancel
+Content-Type: application/json
+```
+
+Terceiro endpoint do serviço, adicionado em 22/09/2026 a partir de um
+terceiro documento de especificação (`cancelamento.txt`, enviado pelo
+usuário como anexo - não versionado no repositório, mesmo tratamento já
+dado a `projeto_consulta.txt`/`docs/consulta-dados.txt`). Recebe, de
+OUTROS sistemas (não do fluxo interno de compra), uma solicitação de
+cancelamento de produto - imediato, agendado para o fim do ciclo vigente,
+ou a desistência de um cancelamento já agendado - com estorno opcional das
+faturas associadas.
+
+**Por que o mesmo controller, em vez de um novo?** Mesma decisão já usada
+para `/query`: o cancelamento opera sobre o mesmo agregado (`T_PRODUCT`/
+`T_BILL`) do domínio "purchases", então vira um recurso a mais
+(`/purchases/cancel`) dentro do `PurchaseController` já existente, em vez
+de um `CancellationController`/módulo separado - mantém o agrupamento por
+DOMÍNIO de negócio, não por "verbo HTTP" ou "tipo de operação".
+
+### Os três tipos de cancelamento (`type`)
+
+- **`IMMEDIATE`**: cancela o produto agora. Bloqueado se o assinante está
+  inadimplente (`SUSPENSION_STATUS = DEFAULTER`) ou se o produto/
+  cancelamento já não estão em um estado compatível. Não impõe nenhuma
+  exigência própria sobre `refund[]` além das regras gerais de estorno
+  (ver seção abaixo e "Decisões tomadas sem bloquear no usuário") - decidir
+  QUAIS faturas devem ser estornadas num cancelamento imediato é
+  responsabilidade de quem chama este endpoint, não deste serviço. Grava
+  `CANCELLATION_STATUS = CANCELLED`, `STATUS = CANCELLED`,
+  `DISABLE_BILLING_B = 1` e as duas datas de efetivação (agendada e
+  efetiva) com o instante atual.
+- **`SCHEDULED`**: agenda o cancelamento para o FIM do ciclo vigente
+  (`CANCELLATION_SCH_DT = CYCLE_END_DT`), sem tirar o produto do ar agora.
+  Só permitido para produtos com vigência de serviço (`EXP_SERV = 1`) e
+  sem nenhum cancelamento já agendado. **Regra de downgrade**: se a
+  `transactionDt` informada for ANTERIOR ao início do ciclo vigente
+  (`CYCLE_START_DT`) - ou seja, uma solicitação atrasada, chegando depois
+  que um novo ciclo já começou - o pedido é reprocessado como `IMMEDIATE`
+  (todas as regras de elegibilidade de `IMMEDIATE` passam a valer, não as
+  de `SCHEDULED`), e a resposta expõe os dois valores separadamente:
+  `inputType` (o que foi pedido) e `processedType` (o que foi de fato
+  aplicado).
+- **`WITHDRAW_CANCELLATION`**: desiste de um cancelamento `SCHEDULED` já
+  registrado (limpa `CANCELLATION_SCH_DT`, volta `CANCELLATION_STATUS`
+  para `NO_SCHEDULES`, reativa a cobrança). Só permitido quando existe de
+  fato um agendamento em aberto E ele não foi criado automaticamente
+  (`AUTO_CANCEL_SCH_B = 0`) - um cancelamento automático (feature toggle
+  `AUTOMATIC_SCHEDULE_CANCEL_FOR_ONE_SHOT`, ver seção de 17/09/2026) não
+  pode ser "desistido" manualmente por este endpoint, por design.
+
+**Regra geral, comum aos 3 tipos**: o `transactionDt` informado não pode
+ser anterior a `T_PRODUCT.CREATED_DT` do produto resolvido - um
+cancelamento não pode, logicamente, "acontecer" antes de o produto sequer
+ter sido criado. Violação retorna `400`. Diferente do piso global de
+`transactionDt` (`MINIMAL_TRANSACTION_DATE`, mesmo valor para qualquer
+requisição), esta checagem é POR PRODUTO - só pode acontecer depois de
+resolver o `productId` no banco, por isso vem mais adiante na ordem de
+validação (ver javadoc de `CancellationValidationService`), mesmo
+envolvendo o mesmo campo de entrada checado antes.
+
+### Estorno de fatura (`hasRefund`/`refund[]`)
+
+Opcional, pensado para antecipar um futuro endpoint dedicado de devolução
+(regra geral 2 do anexo) sem já criar esse endpoint agora - ver decisão de
+arquitetura abaixo. Cada item do array `refund[]` (`billId`, `amount`) é
+validado individualmente: a fatura precisa pertencer ao mesmo produto,
+estar totalmente paga (`BALANCE_VALUE = 0`), e o valor não pode ser
+nulo/negativo/zero nem ultrapassar o saldo ainda não estornado
+(`CHARGED_VALUE - REFUND_VALUE`). Cada estorno aplicado incrementa
+`REFUND_VALUE`, recalcula `REFUND_STATUS` (`PART_REFUNDED`/
+`FULL_REFUNDED`) e, quando o estorno fica completo, também marca
+`T_BILL.STATUS = RETURNED` (novo valor `8`, ver migration `V15` abaixo).
+
+### Decisões tomadas sem bloquear no usuário
+
+- **Rollback total em caso de erro** (regra geral 1 do anexo): toda a
+  persistência (produto + faturas estornadas) acontece dentro de uma única
+  transação `@Transactional`
+  (`CancellationOrchestrationService.persistAndBuildResponse`) - mesmo
+  mecanismo já usado por `PurchaseOrchestrationService` para a criação de
+  compra. Um sucesso no cancelamento seguido de falha no estorno desfaz os
+  dois, nunca deixando o produto "cancelado, mas sem os estornos
+  aplicados".
+- **Onde vive a lógica de estorno, pensando no endpoint dedicado futuro**
+  (regra geral 2 do anexo): a mutação de `T_BILL` (`REFUND_VALUE`/
+  `REFUND_STATUS`/`STATUS`) foi isolada em dois métodos privados
+  (`processRefunds`/`applyRefund`) dentro do MESMO
+  `CancellationOrchestrationService`, em vez de já nascer um
+  `RefundService` separado sem nenhum segundo chamador ainda - extração
+  YAGNI adiada de propósito, mas os métodos já estão isolados o
+  suficiente para virar um serviço próprio (reaproveitado tanto por aqui
+  quanto por um futuro endpoint de devolução) só movendo o arquivo,
+  quando esse endpoint existir de fato.
+- **`protocolId` (entrada) x `protocol` (saída)**: o próprio anexo usa os
+  dois nomes para o mesmo conceito (campo de entrada `protocolId`, campo
+  de saída `protocol`) - implementado literalmente como especificado, sem
+  "corrigir" a inconsistência por conta própria (mesmo critério já
+  aplicado a outras inconsistências do `projeto.txt` original).
+- **Idempotência de `protocolId` compartilha o mesmo espaço de nomes do
+  `protocol` da compra**: `T_LOG.PROTOCOL` não tem uma coluna que
+  identifique de qual endpoint veio cada registro - então, tecnicamente, um
+  `protocolId` de cancelamento que colida com um `protocol` de compra já
+  bem-sucedido também seria bloqueado com `409`. Aceitável para esta v1
+  (o cliente controla os valores que envia, e nada no anexo pede um
+  namespace separado), mas registrado aqui como uma limitação de schema
+  conhecida - ver "Limitações conhecidas" abaixo.
+- **Decisão revista - "estorno de toda fatura associada" para
+  `IMMEDIATE`+`ONESHOT` sem vigência**: o anexo diz, textualmente, que "se
+  existe alguma fatura associada... precisará ter o estorno da mesma" -
+  redação ambígua entre "pelo menos uma" e "todas". A primeira entrega
+  desta feature (22/09/2026) havia optado pela leitura mais protetiva -
+  **todas** as faturas do produto precisando aparecer no `refund[]` com o
+  valor EXATO do saldo ainda não estornado. Revisado, ainda em 22/09/2026,
+  a pedido do usuário: este serviço NÃO decide mais quais faturas devem
+  ser estornadas num `IMMEDIATE` de um `ONESHOT` sem vigência - essa é uma
+  regra de negócio de quem CHAMA o endpoint (o sistema de origem do
+  cancelamento sabe, por exemplo, se o produto tem vigência remanescente
+  a considerar), não deste `billing-registration-service`. A única
+  responsabilidade que permanece aqui é a integridade referencial de cada
+  item de `refund[]` informado: pertencer ao `productId` da requisição
+  (Regra 2 de estorno) e passar pelas demais regras gerais (fatura
+  quitada, valor dentro do saldo estornável) - ver seção "Estorno de
+  fatura" acima. Um `IMMEDIATE` sem `hasRefund` algum, ou com estorno
+  parcial de só uma entre várias faturas, agora é aceito normalmente.
+- **Coluna real diverge do nome usado no anexo**: o anexo cita
+  `T_PRODUCT.SUSPEND_STATUS`; a coluna real (já existente desde a `V13`,
+  criada numa sessão anterior a esta feature) chama-se `SUSPENSION_STATUS`
+  - seguido o nome real do schema, não o do anexo.
+- **`AssetIdParser`**: como a validação de cancelamento precisa fazer o
+  caminho INVERSO de `AssetIdFormatter` (transformar `"PROD_123"`/`"123"`
+  de volta no `Long` técnico, tanto para `productId` quanto para os
+  `billId` de `refund[]`), foi criado um utilitário novo espelhado
+  (`util/AssetIdParser`) em vez de duplicar essa lógica pela terceira vez -
+  ela já existia, privada e duplicada, dentro de
+  `PurchaseQueryValidationService`, que foi refatorada para delegar a ele
+  também (comportamento 100% preservado, sem exigir mudança de teste, já
+  que é um método privado).
+
+### Testes desta feature
+
+100% testes de unidade com Mockito, mesmo padrão do resto do projeto (e
+mesma limitação de sandbox descrita em "Limitações conhecidas" quanto a
+`mvn verify` real):
+
+- `CancellationValidationServiceTest` - toda a matriz de elegibilidade dos
+  3 tipos (incluindo o downgrade `SCHEDULED` → `IMMEDIATE`), a validação
+  de `transactionDt`/idempotência de `protocolId`, e toda a matriz de
+  regras de estorno (fatura de outro produto, fatura não quitada, valor
+  acima do saldo, etc.).
+- `CancellationOrchestrationServiceTest` - o estado final de `T_PRODUCT`/
+  `T_BILL` para cada tipo processado, estorno parcial x total (incluindo
+  `T_BILL.STATUS = RETURNED` só no estorno total), e a resposta reajustada
+  para o caso de downgrade (`inputType` ≠ `processedType`).
+- `CancellationServiceTest` - os 3 caminhos da fachada (sucesso,
+  `BusinessException`, exceção inesperada → 500), mesma cobertura já
+  existente para `PurchaseServiceTest`.
+- `AssetIdParserTest` - utilitário puro, espelhando `AssetIdFormatterTest`.
+- `GlobalExceptionHandlerTest` - estendido para cobrir o novo formato de
+  erro (`CancellationResponse`) tanto para JSON malformado quanto para
+  falha de Bean Validation neste terceiro endpoint.
+
+**Ainda sem teste de ponta a ponta (Cucumber)**: por pedido explícito do
+usuário, os cenários funcionais desta feature ficam para uma segunda etapa
+("irei implementar em um segundo momento os testes que serão adicionados
+no Cucumber") - os arquivos `.feature` deste sandbox não foram alterados
+por essa mesma feature, para não sobrescrever a versão mais atualizada que
+o usuário mantém localmente (mesmo cuidado já registrado na sessão de
+21/09/2026, seção "Nova feature implementada" do documento de decisões).
+
 ## Banco de dados
 
 Os scripts de criação de banco ficam versionados como *migrations* do
@@ -329,6 +503,11 @@ Os scripts de criação de banco ficam versionados como *migrations* do
 | `V8__add_account_email_fallback_and_payment_brand.sql` | `T_ACCOUNT.EMAIL`/`AUTHORIZED_FALLBACK_B`, `T_PAYMENT.BRAND` |
 | `V9__add_product_disable_billing_and_cancellation.sql` | `T_PRODUCT.DISABLE_BILLING_B`/`CANCELLATION_REQ_DT`/`CANCELLATION_SCH_DT` |
 | `V10__create_config_feature_toggle.sql` | tabela `T_CONFIG_FEATURE_TOGGLE` (+ `_AU`) - liga/desliga regras em runtime |
+| `V11__create_config_parameters.sql` | tabela `T_CONFIG_PARAMETERS` (+ `_AU` abreviado) - parâmetros de configuração de valor livre |
+| `V12__create_product_suspension_cancellation_refund_domains.sql` | 3 tabelas de domínio: `T_DOMAIN_PRODUCT_SUSPENSION_STATUS`/`_PRODUCT_CANCELLATION_STATUS`/`_BILL_REFUND_STATUS` |
+| `V13__add_product_suspension_and_cancellation_fields.sql` | `T_PRODUCT.SUSPENSION_STATUS`/`CANCELLATION_CHANNEL`/`CANCELLATION_EFC_DT`/`CANCELLATION_STATUS`/`CANCELLATION_DESCRIPTION`/`AUTO_CANCEL_SCH_B` |
+| `V14__add_bill_balance_and_refund_fields.sql` | `T_BILL.BALANCE_VALUE`/`REFUND_VALUE`/`REFUND_STATUS` |
+| `V15__add_bill_status_returned.sql` | `T_DOMAIN_BILL_STATUS` ganha o valor `8;Devolvida;RETURNED` (usado pelo cancelamento com estorno total - ver seção "Cancelamento de produto") |
 
 Ver também `database/README.md` para mais detalhes sobre por que os scripts
 vivem ali (em vez de soltos em uma pasta separada).
@@ -998,6 +1177,22 @@ Remover `length` ao adicionar `@Lob` é um erro comum e intuitivo (parece
   também só **grava a data planejada**; o job que efetivamente cancelaria o
   produto na data agendada é outro passo futuro (ver "Próximo serviço
   natural a construir").
+- **`POST /api/v1/purchases/cancel`** (22/09/2026): o `protocolId` deste
+  endpoint compartilha o mesmo espaço de idempotência (`T_LOG.PROTOCOL`)
+  do `protocol` da compra, já que `T_LOG` não tem uma coluna de
+  discriminação por endpoint - ver seção "Cancelamento de produto" acima.
+  A lógica de estorno vive hoje dentro de
+  `CancellationOrchestrationService` (não em um serviço dedicado), por
+  ainda não existir um segundo chamador (o futuro endpoint de devolução
+  citado no próprio anexo da feature) que justifique a extração agora.
+- Nenhuma parte do código deste projeto pôde ser compilada/executada
+  neste sandbox desde a sessão de 19/09/2026 em diante (falta JDK 25 e
+  acesso à internet para o Maven Central aqui) - toda verificação de
+  `mvn test`/`mvn verify` depende do usuário rodar localmente ou no CI e
+  compartilhar o log, como já vem acontecendo. A feature de cancelamento
+  (22/09/2026) segue essa mesma limitação: validada por leitura cuidadosa
+  do código-fonte real (nomes de campo, ordem de parâmetros de cada
+  `record`, convenções de builder do Lombok), não por uma execução real.
 
 ## Testes
 
@@ -1376,6 +1571,7 @@ de outros frameworks para estudos futuros"):
 | Idempotência/cache | Consulta direta ao `T_LOG` | **Redis** como cache de idempotência (mais rápido que consultar o banco relacional a cada requisição) |
 | Feature flags | Tabela própria (`T_CONFIG_FEATURE_TOGGLE`) + `FeatureToggleService` | **Togglz**, **FF4J**, **Unleash**, **LaunchDarkly** ou **Split** (soluções dedicadas, com painel de administração, *targeting* por usuário/percentual, e SDKs prontos); cache da leitura com Spring `@Cacheable` + **Caffeine** (evita ir ao banco em toda requisição); ou centralizar a configuração em **Spring Cloud Config**/**Consul**, com atualização em runtime via *refresh* |
 | Parâmetros de configuração (valor livre) | Tabela própria (`T_CONFIG_PARAMETERS`) + `ConfigParameterService` (`V11`, 21/09/2026) | Mesmas alternativas de "Feature flags" acima (é o mesmo problema, só com um `VALUE` de texto em vez de um booleano) - **Spring Cloud Config Server**/**Consul KV** se o parâmetro precisar ser o MESMO para todas as instâncias e recarregado via `@RefreshScope`; ou um `@ConfigurationProperties` comum quando o valor só muda com um novo deploy (não é o caso de `MINIMAL_TRANSACTION_DATE`, pensado para mudar sem deploy) |
+| Cancelamento/estorno (`POST /purchases/cancel`, 22/09/2026) | Síncrono, dentro do mesmo serviço, `@Transactional` para rollback total | Um **saga/orquestração** (ex: **Axon Framework**, ou uma máquina de estados própria) se o cancelamento passar a envolver múltiplos serviços/sistemas externos (ex: estornar de fato no gateway de pagamento, não só na base local) - hoje é uma única transação de banco local, então uma saga seria over-engineering; publicar um evento (`ProductCancelledEvent`/`BillRefundedEvent`) em **Kafka**/**RabbitMQ** ao final, para o futuro endpoint dedicado de devolução (já antecipado no design, ver seção "Cancelamento de produto") reagir de forma assíncrona em vez de crescer dentro do mesmo orquestrador |
 
 ### Próximo serviço natural a construir
 

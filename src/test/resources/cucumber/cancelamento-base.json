@@ -1,0 +1,15 @@
+{
+  "channel": "WEB",
+  "transactionDt": "__TRANSACTION_DT__",
+  "protocolId": "__PROTOCOL__",
+  "productId": "__PRODUCT_ID__",
+  "type": "IMMEDIATE",
+  "description": "Teste",
+  "hasRefund": true,
+  "refund": [
+    {
+      "billId": "__BILL_ID__",
+      "amount": __CHARGED_VALUE__
+    }
+  ]
+}

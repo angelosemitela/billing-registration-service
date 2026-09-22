@@ -6,6 +6,7 @@ import com.aalvarenga.billing.entity.ProductEntity;
 import com.aalvarenga.billing.exception.BusinessException;
 import com.aalvarenga.billing.repository.AccountRepository;
 import com.aalvarenga.billing.repository.ProductRepository;
+import com.aalvarenga.billing.util.AssetIdParser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,9 +25,6 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class PurchaseQueryValidationService {
-
-    /** Prefixo usado em TODOS os IDs de produto devolvidos pela API (ver {@code AssetIdFormatter.product}). */
-    private static final String PRODUCT_ID_PREFIX = "PROD_";
 
     private final AccountRepository accountRepository;
     private final ProductRepository productRepository;
@@ -90,15 +88,18 @@ public class PurchaseQueryValidationService {
      * no doc de decisões do projeto, já que o anexo original não deixa
      * claro qual dos dois formatos o campo de entrada {@code productId}
      * deveria aceitar.
+     *
+     * <p>Delega para {@link AssetIdParser} desde 22/09/2026 (feature de
+     * cancelamento de produtos) - esta classe manteve a mesma lógica de
+     * parsing "PROD_ + fallback numérico" duplicada por conta própria até
+     * ali; ver javadoc de {@code AssetIdParser} para o racional completo da
+     * extração.
      */
     private Long parseProductId(String productId) {
-        String technicalPart = productId.startsWith(PRODUCT_ID_PREFIX)
-                ? productId.substring(PRODUCT_ID_PREFIX.length())
-                : productId;
-        try {
-            return Long.parseLong(technicalPart);
-        } catch (NumberFormatException ex) {
+        Long technicalId = AssetIdParser.parseProduct(productId);
+        if (technicalId == null) {
             throw BusinessException.notFound("[productId] Not found");
         }
+        return technicalId;
     }
 }
