@@ -161,6 +161,7 @@ class PurchaseQueryServiceTest {
                 .id(3L).accountId(1L).method("CREDIT").issuer("Santander")
                 .cardNumber("4111111111111111").expiration("03/31")
                 .multiple(true).defaultMethod(true).installments("1").status(1)
+                .brand("VISA")
                 .build();
         when(paymentRepository.findByAccountIdAndStatus(1L, DomainStatus.PAYMENT_ACTIVE)).thenReturn(List.of(payment));
         when(domainStatusLookupService.paymentStatuses(Set.of(1))).thenReturn(Map.of(1, "ACTIVE"));
@@ -193,6 +194,9 @@ class PurchaseQueryServiceTest {
         // 4 últimos dígitos visíveis (decisão do usuário - ver doc de decisões do projeto).
         assertThat(paymentItem.cardNumber()).isEqualTo("************1111");
         assertThat(paymentItem.installments()).isEqualTo(1);
+        // Campo acrescentado em 21/09/2026 (ver decisoes.md): simples repasse
+        // de T_PAYMENT.BRAND, sem máscara nem transformação nenhuma.
+        assertThat(paymentItem.brand()).isEqualTo("VISA");
 
         assertThat(response.bill()).isNull();
 

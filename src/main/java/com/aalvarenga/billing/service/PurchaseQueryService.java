@@ -343,6 +343,12 @@ public class PurchaseQueryService {
                 AssetIdFormatter.payment(payment.getId()),
                 String.valueOf(payment.getCreatedDt()),
                 payment.getMethod(),
+                // Acrescentado em 21/09/2026 a pedido do usuário - simples
+                // repasse de T_PAYMENT.BRAND, sem nenhuma regra: já vem
+                // null para PIX/WALLET desde a persistência (ver
+                // PurchaseValidationService.validatePayments), então não há
+                // necessidade de tratamento extra aqui.
+                payment.getBrand(),
                 payment.getIssuer(),
                 MaskingUtil.maskKeepingLast(payment.getCardNumber(), CARD_NUMBER_VISIBLE_DIGITS),
                 payment.getExpiration(),

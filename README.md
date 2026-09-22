@@ -674,6 +674,32 @@ tabelas novas; as colunas `NOT NULL` de `V13`/`V14` são todas *backfilled*
 deterministicamente (por dedução de uma coluna já existente, ou por um
 valor fixo igual para toda linha) antes do `MODIFY ... NOT NULL`.
 
+### `payment[].brand` exposto na consulta de dados (21/09/2026)
+
+Pedido pontual do usuário, sem nenhuma migration nova: `T_PAYMENT.BRAND`
+já existia desde `V8` e já era gravada normalmente na criação da compra
+(`PaymentService.persistPayments`), mas a consulta
+(`POST /api/v1/purchases/query`) nunca a devolvia - não fazia parte do
+anexo original de especificação (`docs/consulta-dados.txt`), que já era
+uma versão anterior ao próprio conceito de `payment.brand` (acrescentado
+só na V8).
+
+- **`QueryPaymentItem.brand`**: novo campo na lista `payment[]` da
+  resposta, posicionado logo após `method` (agrupado com ele por
+  significado - a bandeira só existe quando o método é `CREDIT`/`DEBIT`)
+  em vez de no fim do record, mesmo critério de organização já usado nos
+  demais DTOs de resposta deste projeto.
+- **`PurchaseQueryService.toPaymentItem`**: simples repasse de
+  `payment.getBrand()`, sem nenhuma regra nova - o valor já chega `null`
+  para PIX/WALLET desde a validação de entrada
+  (`PurchaseValidationService.validatePayments`), então não há
+  transformação a fazer aqui.
+- **Teste**: `PurchaseQueryServiceTest.successByExternalId_...` ganhou um
+  pagamento de exemplo com `brand("VISA")` e a asserção correspondente -
+  não foi criado um teste dedicado só para isso porque é um repasse direto
+  de campo, sem cálculo/regra de negócio (mesmo critério documentado no
+  javadoc da classe de teste, que já explicita esse corte).
+
 ### Nota de compatibilidade: Jackson 3 no Spring Boot 4.1
 
 O Spring Boot 4.1 (Spring Framework 7) passou a usar o **Jackson 3** como
@@ -1051,12 +1077,27 @@ localmente; já vem pronto nos runners `ubuntu-latest` do GitHub Actions).
 
 Dois arquivos `.feature` (Gherkin, em português - `src/test/resources/features/`):
 
-- **`registro-e-consulta-de-compra.feature`** - o ciclo completo pedido:
-  1) dispara uma compra (`POST /api/v1/purchases`); 2) confirma que conta,
-  produtos e faturas foram PERSISTIDOS no banco (consultando os mesmos
-  repositórios Spring Data que a aplicação usa); 3) consulta essa mesma
-  massa via `POST /api/v1/purchases/query` e confirma que a resposta bate
-  com o que foi persistido.
+- **`registro-e-consulta-de-compra.feature`** - o ciclo completo pedido,
+  com 2 cenários:
+  1. **Contagem**: dispara uma compra (`POST /api/v1/purchases`); confirma
+     que conta, produtos e faturas foram PERSISTIDOS no banco (consultando
+     os mesmos repositórios Spring Data que a aplicação usa); consulta
+     essa mesma massa via `POST /api/v1/purchases/query` (pelo
+     `externalId`) e confirma que a resposta tem a MESMA QUANTIDADE de
+     produtos/faturas persistidos.
+  2. **Campo a campo** (pedido em 21/09/2026, a partir de uma planilha de
+     rastreabilidade trazida pelo usuário): mesmo ciclo, mas encadeando
+     pelo `productId` que a própria criação devolve (não pelo
+     `externalId`) e validando, numa tabela de ~55 linhas, que CADA campo
+     bate entre a requisição enviada, a resposta da criação e a resposta
+     da consulta - incluindo os 2 campos que a consulta devolve MASCARADOS
+     (`account.document.value`/`payment.cardNumber`, comparados só pelos
+     dígitos finais) e as linhas de valor fixo (status/saldo/estorno que a
+     consulta já devolve calculados, sem nenhum "espelho" na criação). Ver
+     `PurchaseApiSteps.osCamposAbaixoDevemCorresponder` e `decisoes.md`
+     para as poucas correções de nome de campo que a planilha original
+     precisou (a consulta usa `accountId`/`paymentId`/`billId`, não `id`
+     como a criação da compra).
 - **`erros-de-validacao.feature`** - um *Esquema de Cenário* (Scenario
   Outline) com uma tabela de exemplos: cada LINHA da tabela é uma regra de
   `PurchaseValidationService` violada de propósito (um campo vira vazio/
