@@ -478,13 +478,13 @@ mesma limitação de sandbox descrita em "Limitações conhecidas" quanto a
   erro (`CancellationResponse`) tanto para JSON malformado quanto para
   falha de Bean Validation neste terceiro endpoint.
 
-**Ainda sem teste de ponta a ponta (Cucumber)**: por pedido explícito do
-usuário, os cenários funcionais desta feature ficam para uma segunda etapa
-("irei implementar em um segundo momento os testes que serão adicionados
-no Cucumber") - os arquivos `.feature` deste sandbox não foram alterados
-por essa mesma feature, para não sobrescrever a versão mais atualizada que
-o usuário mantém localmente (mesmo cuidado já registrado na sessão de
-21/09/2026, seção "Nova feature implementada" do documento de decisões).
+**Teste de ponta a ponta (Cucumber)**: implementado numa segunda etapa
+(22/09/2026, a partir de uma planilha de casos de teste trazida pelo
+usuário), em `src/test/resources/features/cancelamento.feature` - ver
+descrição completa na seção "Testes funcionais/E2E" mais abaixo (1
+`Esquema do Cenário` com 13 linhas de `Exemplos` cobrindo cenários de
+erro + 4 `Cenário`s de sucesso, reaproveitando os passos já existentes de
+`PurchaseApiSteps` para montar a "massa" de cada cancelamento).
 
 ## Banco de dados
 
@@ -1190,15 +1190,28 @@ Remover `length` ao adicionar `@Lob` é um erro comum e intuitivo (parece
   acesso à internet para o Maven Central aqui) - toda verificação de
   `mvn test`/`mvn verify` depende do usuário rodar localmente ou no CI e
   compartilhar o log, como já vem acontecendo. A feature de cancelamento
-  (22/09/2026) segue essa mesma limitação: validada por leitura cuidadosa
-  do código-fonte real (nomes de campo, ordem de parâmetros de cada
-  `record`, convenções de builder do Lombok), não por uma execução real.
+  (22/09/2026) foi escrita sob essa mesma limitação (validada, antes da
+  entrega, por leitura cuidadosa do código-fonte real - nomes de campo,
+  ordem de parâmetros de cada `record`, convenções de builder do Lombok),
+  mas já está **confirmada por execução real**: o usuário rodou
+  `mvn clean verify` (Windows/IntelliJ, JDK 25, Docker Desktop) e obteve
+  `BUILD SUCCESS` completo, incluindo os 118 cenários Cucumber (101
+  pré-existentes + 17 novos de `cancelamento.feature`) e os 211 testes de
+  unidade, todos passando - ver "Testes" e "Testes funcionais/E2E" abaixo.
 
 ## Testes
 
 ```bash
 mvn test
 ```
+
+**Estado atual (confirmado em 22/09/2026 via `mvn clean verify` real)**:
+**211 testes de unidade** (Mockito, este comando) + **118 cenários
+funcionais/E2E** (Cucumber/Testcontainers, ver "Testes funcionais/E2E"
+abaixo) - todos passando, 0 violações de Checkstyle, gate de cobertura do
+JaCoCo atendido, 0 achados do SpotBugs. Os números abaixo, dentro de cada
+bullet, ficam como registro histórico de QUANDO cada suíte foi
+introduzida - não é preciso somá-los manualmente para saber o total atual.
 
 Testes de unidade "puros" (sem subir Spring context nem banco de dados),
 focados nos pontos de maior risco/complexidade:
@@ -1270,7 +1283,7 @@ comando que cobre tudo (unidade + funcional/E2E + qualidade estática).
 **Pré-requisito**: Docker precisa estar disponível (Docker Desktop
 localmente; já vem pronto nos runners `ubuntu-latest` do GitHub Actions).
 
-Dois arquivos `.feature` (Gherkin, em português - `src/test/resources/features/`):
+Três arquivos `.feature` (Gherkin, em português - `src/test/resources/features/`):
 
 - **`registro-e-consulta-de-compra.feature`** - o ciclo completo pedido,
   com 2 cenários:
@@ -1301,6 +1314,17 @@ Dois arquivos `.feature` (Gherkin, em português - `src/test/resources/features/
   normalmente é só uma linha nova nessa tabela, não uma classe/método Java
   novo - o que torna essa suíte fácil de escalar (ver também a seção
   "Escalando para outros fluxos" logo abaixo).
+- **`cancelamento.feature`** (22/09/2026, a partir de uma planilha de casos
+  de teste trazida pelo usuário) - cobre `POST /api/v1/purchases/cancel`:
+  1 `Esquema do Cenário` com 13 linhas de `Exemplos` (cada uma violando de
+  propósito uma regra de `CancellationValidationService`, mesmo padrão de
+  `erros-de-validacao.feature`) + 4 `Cenário`s de sucesso (`IMMEDIATE` com
+  estorno total, `SCHEDULED` sem downgrade, `IMMEDIATE` com estorno
+  parcial, `IMMEDIATE` sem estorno), cada um comparando campo a campo a
+  requisição de cancelamento com a resposta (`CancellationApiSteps`). Toda
+  "massa" de teste (a compra que antecede o cancelamento) é montada
+  reaproveitando os passos JÁ EXISTENTES de `PurchaseApiSteps` - nenhuma
+  duplicação de step definition entre as duas features.
 
 > **Nota de transparência** (mesmo padrão já usado neste projeto para
 > JaCoCo/Checkstyle/SpotBugs): Cucumber, REST Assured e Testcontainers são
@@ -1315,15 +1339,20 @@ Dois arquivos `.feature` (Gherkin, em português - `src/test/resources/features/
 > etc.), do mesmo jeito que já aconteceu com o Checkstyle na sua primeira
 > rodada real.
 
-#### Escalando para outros fluxos (recorrência, cancelamento)
+#### Escalando para outros fluxos (recorrência)
 
 A infraestrutura desta suíte (`SpringIntegrationConfig` - o container
 Testcontainers + o contexto Spring, subidos uma única vez para toda a
 suíte) foi propositalmente deixada em uma classe própria, sem nada
-específico de "compra" nela - um futuro job de recorrência ou de
-cancelamento automático (ver "Próximo serviço natural a construir", mais
-abaixo) reaproveitaria exatamente a mesma classe, bastando acrescentar:
-um novo arquivo `.feature` (ex: `recorrencia.feature`), uma nova classe de
+específico de "compra" nela - e essa aposta já se confirmou na prática:
+`cancelamento.feature` (22/09/2026, ver bullet acima) reaproveitou
+exatamente essa mesma infraestrutura, só acrescentando um `.feature` novo
+(`cancelamento.feature`), uma nova classe de step definitions
+(`CancellationApiSteps`) e uma fixture própria
+(`cancelamento-base.json`) - sem tocar em `SpringIntegrationConfig` nem em
+`RunCucumberIT`. Um futuro job de recorrência (ver "Próximo serviço
+natural a construir", mais abaixo) reaproveitaria a mesma receita: um
+novo arquivo `.feature` (ex: `recorrencia.feature`), uma nova classe de
 step definitions (ex: `RecorrenciaSteps`) e, se o novo fluxo tiver sua
 própria fixture de payload, um novo arquivo em
 `src/test/resources/cucumber/`. Nenhuma mudança no `pom.xml` ou no

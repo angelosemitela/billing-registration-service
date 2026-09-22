@@ -79,3 +79,53 @@ curl -X POST http://localhost:8080/api/v1/purchases/query \
   -H "Content-Type: application/json" \
   -d '{"productId": "PROD_1", "returnBillData": true, "maxBillReturn": 5}'
 ```
+
+## Cancelamento de produto (`POST /api/v1/purchases/cancel`)
+
+Terceira feature do projeto (22/09/2026) - ver README principal, seção
+"Cancelamento de produto", para o contrato completo (os 3 tipos
+`IMMEDIATE`/`SCHEDULED`/`WITHDRAW_CANCELLATION`, as regras de elegibilidade
+por tipo e as regras de estorno). Como o anexo original (`cancelamento.txt`)
+não é versionado aqui, a fixture
+`src/test/resources/cucumber/cancelamento-base.json` (usada pelos testes
+funcionais/E2E) é o exemplo mais fiel de um payload que funciona de ponta a
+ponta - `productId`/`refund[0].billId`/`refund[0].amount` precisam vir de
+uma compra já registrada (ver `product[0].id`/`billing[0].id`/
+`billing[0].chargedValue` na resposta de `POST /api/v1/purchases`).
+
+```bash
+curl -X POST http://localhost:8080/api/v1/purchases/cancel \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel": "WEB",
+    "transactionDt": "1791726000000",
+    "protocolId": "CANCEL-EXAMPLE-0001",
+    "productId": "PROD_1",
+    "type": "IMMEDIATE",
+    "description": "Cliente desistiu da compra",
+    "hasRefund": true,
+    "refund": [ { "billId": "BILL_1", "amount": 12.00 } ]
+  }'
+```
+
+Resposta esperada (formato ilustrativo - `productSt`/`cancellationSt`
+variam conforme o `type` processado, ver README principal):
+
+```json
+{
+  "result": "SUCCESS",
+  "code": "200",
+  "reason": "Success",
+  "protocol": "CANCEL-EXAMPLE-0001",
+  "productId": "PROD_1",
+  "inputType": "IMMEDIATE",
+  "processedType": "IMMEDIATE",
+  "productSt": "CANCELLED",
+  "cancellationSt": "CANCELLED",
+  "cancellationDt": "1791726000000",
+  "nextBillDt": null,
+  "refund": [
+    { "billId": "BILL_1", "amount": 12.00, "refundSt": "FULL_REFUNDED", "updatedValue": 0.00 }
+  ]
+}
+```
